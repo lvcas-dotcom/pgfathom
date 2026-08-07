@@ -14,6 +14,7 @@ import (
 	"github.com/lvcas-dotcom/pgfathom/internal/model"
 	"github.com/lvcas-dotcom/pgfathom/internal/profile"
 	"github.com/lvcas-dotcom/pgfathom/internal/report"
+	"github.com/lvcas-dotcom/pgfathom/internal/sqlprobe"
 	"github.com/lvcas-dotcom/pgfathom/internal/stats"
 	"github.com/lvcas-dotcom/pgfathom/internal/validate"
 )
@@ -26,6 +27,7 @@ type discoverOptions struct {
 	includeRejected bool
 	noDetect        bool
 	noStats         bool
+	noProbe         bool
 	full            bool
 	sampleRows      int64
 }
@@ -107,6 +109,8 @@ Every score comes with the signals that produced it, so it can be argued with.`,
 		"do not read naming conventions from the schema; use only the profile")
 	f.BoolVar(&opts.noStats, "no-stats", false,
 		"do not use planner statistics to prefilter candidates")
+	f.BoolVar(&opts.noProbe, "no-probe", false,
+		"do not mine join predicates from view and function definitions")
 	f.BoolVar(&opts.full, "full", false,
 		"validate against every row; the only mode that can confirm a relationship")
 	f.Int64Var(&opts.sampleRows, "sample-rows", validate.DefaultTargetRows,
@@ -151,13 +155,27 @@ func runDiscover(ctx context.Context, streams *Streams, opts *discoverOptions) e
 		active = naming.WithDetected(detection)
 	}
 
+	// Usage evidence is what breaks the ceiling of name matching. A failure to
+	// read it costs signal, never correctness, so it degrades to a warning.
+	var evidence sqlprobe.Evidence
+	if !opts.noProbe {
+		probed, err := sqlprobe.Probe(ctx, pool, cat.Schemas)
+		if err != nil {
+			warn("usage evidence skipped: " + err.Error())
+		} else {
+			evidence = *probed
+		}
+	}
+
 	inferred := infer.Generate(cat.Schemas, infer.Options{
 		Profile:  active,
 		MinScore: opts.minScore,
+		Evidence: evidence.Joins,
 	})
 
 	coverage := cat.Coverage
 	coverage.CandidatesFound = len(inferred.Candidates) + len(inferred.Discarded)
+	coverage.PgStatStatements = evidence.StatementsAvailable
 
 	// The prefilter runs on the threshold survivors only: every candidate it
 	// kills is an anti-join that validation will not fire against someone's

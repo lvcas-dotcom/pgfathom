@@ -17,6 +17,15 @@ const (
 	weightCommentMention = 0.12
 	weightNotNull        = 0.05
 
+	// A join in real code outranks any name signal: it is usage, not
+	// convention, and it is the only evidence that reaches relationships whose
+	// names bear no resemblance. Views outrank function bodies, which the
+	// extractor reads with less context; the query log ranks last because it
+	// mixes in ad-hoc sessions.
+	weightJoinInView       = 0.50
+	weightJoinInFunction   = 0.45
+	weightJoinInStatements = 0.40
+
 	penaltyAmbiguousTarget = -0.25
 	penaltyGenericDomain   = -0.30
 )
