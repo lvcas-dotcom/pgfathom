@@ -19,6 +19,11 @@ type Options struct {
 	// SmallTableRows is the size below which a target counts as a domain table
 	// for the generic-name penalty.
 	SmallTableRows int64
+
+	// Evidence is join predicates mined from SQL the database stores. Each one
+	// strengthens the matching candidate or creates the candidate that name
+	// matching structurally cannot reach.
+	Evidence []model.JoinEvidence
 }
 
 func (o Options) minScore() float64 {
@@ -107,6 +112,8 @@ func Generate(schemas []model.Schema, opts Options) *Result {
 			}
 		}
 	}
+
+	applyEvidence(res, schemas, opts)
 
 	finalize(res, opts.minScore())
 	return res

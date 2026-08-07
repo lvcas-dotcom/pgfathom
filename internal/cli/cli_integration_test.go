@@ -29,6 +29,8 @@ var plantedValues = []string{
 	"peca de reposicao",
 	"Leitura Manual Bloco C",
 	"Secretaria de Obras",
+	"Compressor Industrial",
+	"Prefeitura de Sao Bernardo",
 }
 
 // TestNoUserDataInAnyStream runs the real commands end to end and scans every
@@ -50,6 +52,8 @@ func TestNoUserDataInAnyStream(t *testing.T) {
 		{"discover json with prefilter", "stats_prefilter", []string{"discover", "--format", "json"}},
 		{"discover validated", "validation", []string{"discover", "--full", "--include-rejected"}},
 		{"discover validated json", "validation", []string{"discover", "--format", "json"}},
+		{"discover with usage evidence", "usage_evidence", []string{"discover", "--full", "--include-rejected"}},
+		{"discover usage evidence json", "usage_evidence", []string{"discover", "--full", "--format", "json"}},
 	}
 
 	for _, tc := range cases {

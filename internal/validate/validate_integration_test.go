@@ -58,7 +58,7 @@ func setup(t *testing.T) (*fixtureRun, context.Context) {
 	return &fixtureRun{pool: pool, schemas: cat.Schemas, candidates: pre.Kept}, ctx
 }
 
-func (f *fixtureRun) validate(t *testing.T, ctx context.Context, opts validate.Options) *validate.Result {
+func (f *fixtureRun) validate(ctx context.Context, t *testing.T, opts validate.Options) *validate.Result {
 	t.Helper()
 
 	res, err := validate.Run(ctx, f.pool, f.schemas, f.candidates, opts)
@@ -82,7 +82,7 @@ func byChild(t *testing.T, res *validate.Result, child string) model.Candidate {
 
 func TestFullModeVerdicts(t *testing.T) {
 	f, ctx := setup(t)
-	res := f.validate(t, ctx, validate.Options{Full: true})
+	res := f.validate(ctx, t, validate.Options{Full: true})
 
 	tests := map[string]model.Verdict{
 		"public.item_pedido.pedido_id":   model.VerdictConfirmed,
@@ -109,7 +109,7 @@ func TestFullModeVerdicts(t *testing.T) {
 // plants 3 orphan rows over 2 values, and the tool must report exactly that.
 func TestPlantedOrphansAreCountedExactly(t *testing.T) {
 	f, ctx := setup(t)
-	res := f.validate(t, ctx, validate.Options{Full: true})
+	res := f.validate(ctx, t, validate.Options{Full: true})
 
 	c := byChild(t, res, "public.pedido.cliente_id")
 	v := c.Validation
@@ -126,7 +126,7 @@ func TestPlantedOrphansAreCountedExactly(t *testing.T) {
 
 func TestSampledModeNeverConfirms(t *testing.T) {
 	f, ctx := setup(t)
-	res := f.validate(t, ctx, validate.Options{TargetRows: 30, Seed: 42})
+	res := f.validate(ctx, t, validate.Options{TargetRows: 30, Seed: 42})
 
 	// A table that fits the target is read whole, which is the conclusive mode
 	// and may confirm even in a sampled run. What can never confirm is a
@@ -149,7 +149,7 @@ func TestSampledModeNeverConfirms(t *testing.T) {
 // clean 30-row sample astronomically unlikely, and the seed freezes it.
 func TestOrphanInSampleIsARealFinding(t *testing.T) {
 	f, ctx := setup(t)
-	res := f.validate(t, ctx, validate.Options{TargetRows: 100, Seed: 42})
+	res := f.validate(ctx, t, validate.Options{TargetRows: 100, Seed: 42})
 
 	c := byChild(t, res, "public.lancamento.conta_id")
 	if c.Validation == nil || c.Validation.Method != model.MethodSampled {
@@ -166,7 +166,7 @@ func TestOrphanInSampleIsARealFinding(t *testing.T) {
 
 func TestTimeoutResolvesWithoutAborting(t *testing.T) {
 	f, ctx := setup(t)
-	res := f.validate(t, ctx, validate.Options{Full: true, Timeout: time.Millisecond})
+	res := f.validate(ctx, t, validate.Options{Full: true, Timeout: time.Millisecond})
 
 	if res.TimedOut == 0 {
 		t.Fatal("a 1ms ceiling should have fired at least once")
