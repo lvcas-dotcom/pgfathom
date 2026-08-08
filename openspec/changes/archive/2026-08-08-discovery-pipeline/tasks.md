@@ -31,9 +31,9 @@
 ## 5. Verificação
 
 - [x] 5.1 `go test ./...` verde sem Docker e sem rede, com os golden files intactos — nenhum arquivo `.golden` pode mudar
-- [ ] 5.2 Suíte de integração verde pacote a pacote, com atenção a veredito, contagem de órfãos e conteúdo dos artefatos
+- [x] 5.2 Suíte de integração verde pacote a pacote, com atenção a veredito, contagem de órfãos e conteúdo dos artefatos
 - [x] 5.3 Teste de que a execução programática produz o mesmo resultado do comando, com as mesmas opções
-- [ ] 5.4 Conferir que a saída do binário é idêntica à de antes da change, nas fixtures cobertas
-- [ ] 5.5 Rodar `golangci-lint run` e `--build-tags integration`, zerando os apontamentos
+- [x] 5.4 Conferir que a saída do binário é idêntica à de antes da change, nas fixtures cobertas
+- [x] 5.5 Rodar `golangci-lint run` e `--build-tags integration`, zerando os apontamentos
 - [x] 5.6 Revisar densidade de comentário: a extração não pode multiplicar comentário de trânsito
 - [x] 5.7 Rodar `openspec validate discovery-pipeline --strict` e corrigir o que apontar
