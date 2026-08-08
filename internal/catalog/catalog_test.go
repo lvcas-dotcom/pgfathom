@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -9,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 
 	"github.com/lvcas-dotcom/pgfathom/internal/model"
 )
@@ -169,6 +172,185 @@ func TestSortedSchemas(t *testing.T) {
 func TestDefaultScopeIsPublic(t *testing.T) {
 	if got := (Options{}).schemas(); len(got) != 1 || got[0] != "public" {
 		t.Errorf("default schemas = %v, want [public]", got)
+	}
+}
+
+func TestResolveScope(t *testing.T) {
+	visible := []string{"auditoria_2019", "auditoria_2020", "public", "vendas"}
+
+	tests := []struct {
+		name    string
+		visible []string
+		opts    ScopeOptions
+		want    Scope
+	}{
+		{
+			name:    "no option analyzes public and declares what it left out",
+			visible: visible,
+			want: Scope{
+				Schemas:     []string{"public"},
+				NotAnalyzed: []string{"auditoria_2019", "auditoria_2020", "vendas"},
+				Total:       4,
+			},
+		},
+		{
+			name:    "explicit list is normalized and sorted",
+			visible: visible,
+			opts:    ScopeOptions{Schemas: []string{"vendas", "  public  ", "vendas"}},
+			want: Scope{
+				Schemas:     []string{"public", "vendas"},
+				NotAnalyzed: []string{"auditoria_2019", "auditoria_2020"},
+				Total:       4,
+			},
+		},
+		{
+			name:    "every schema in scope leaves nothing unanalyzed",
+			visible: visible,
+			opts:    ScopeOptions{All: true},
+			want:    Scope{Schemas: visible, Total: 4},
+		},
+		{
+			name:    "exclusion by glob",
+			visible: visible,
+			opts:    ScopeOptions{All: true, ExcludeSchemas: []string{"auditoria_*"}},
+			want: Scope{
+				Schemas:  []string{"public", "vendas"},
+				Excluded: []string{"auditoria_2019", "auditoria_2020"},
+				Total:    4,
+			},
+		},
+		{
+			// Asked to be skipped and never asked for are different facts, and a
+			// schema that lands in one must not also appear in the other.
+			name:    "an excluded schema is not also reported as unasked",
+			visible: visible,
+			opts: ScopeOptions{
+				Schemas:        []string{"public", "vendas"},
+				ExcludeSchemas: []string{"vendas"},
+			},
+			want: Scope{
+				Schemas:     []string{"public"},
+				Excluded:    []string{"vendas"},
+				NotAnalyzed: []string{"auditoria_2019", "auditoria_2020"},
+				Total:       4,
+			},
+		},
+		{
+			name:    "blank entries fall back to the default scope",
+			visible: []string{"public"},
+			opts:    ScopeOptions{Schemas: []string{"", "   "}},
+			want:    Scope{Schemas: []string{"public"}, Total: 1},
+		},
+		{
+			// A misspelled schema stays in scope and produces an empty read. The
+			// visible one it displaced is still reported as unanalyzed, which is
+			// what makes the mistake legible in the coverage block.
+			name:    "a requested schema outside the visible set is kept",
+			visible: []string{"public"},
+			opts:    ScopeOptions{Schemas: []string{"arquivo"}},
+			want: Scope{
+				Schemas:     []string{"arquivo"},
+				NotAnalyzed: []string{"public"},
+				Total:       1,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveScope(tt.visible, tt.opts)
+			if err != nil {
+				t.Fatalf("resolveScope: %v", err)
+			}
+			if diff := cmp.Diff(&tt.want, got); diff != "" {
+				t.Errorf("scope mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestResolveScopeRejectsEmptyScope covers the two ways the scope can end up
+// empty. Running over nothing would produce a report about nothing, which reads
+// exactly like a database with no findings — and the message has to say which of
+// the two emptinesses happened.
+func TestResolveScopeRejectsEmptyScope(t *testing.T) {
+	tests := []struct {
+		name    string
+		visible []string
+		opts    ScopeOptions
+		want    string
+	}{
+		{
+			name:    "everything removed by an exclusion pattern",
+			visible: []string{"public", "vendas"},
+			opts:    ScopeOptions{All: true, ExcludeSchemas: []string{"*"}},
+			want:    "exclusion pattern",
+		},
+		{
+			name:    "the role can open no schema at all",
+			visible: nil,
+			opts:    ScopeOptions{All: true},
+			want:    "visible to the connected role",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := resolveScope(tt.visible, tt.opts)
+			if !errors.Is(err, ErrEmptyScope) {
+				t.Fatalf("error = %v, want it to wrap ErrEmptyScope", err)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("message %q does not explain the cause (%q)", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolvedScopeSupersedesTheSchemaList(t *testing.T) {
+	opts := Options{
+		Schemas: []string{"ignored"},
+		Scope:   &Scope{Schemas: []string{"vendas"}},
+	}
+	if got := opts.schemas(); len(got) != 1 || got[0] != "vendas" {
+		t.Errorf("schemas() = %v, want [vendas]", got)
+	}
+}
+
+func TestScopeStampsCoverage(t *testing.T) {
+	scope := Scope{
+		Schemas:     []string{"public"},
+		Excluded:    []string{"auditoria"},
+		NotAnalyzed: []string{"vendas"},
+		Total:       3,
+	}
+
+	var coverage model.Coverage
+	scope.stamp(&coverage)
+
+	want := model.Coverage{
+		SchemasTotal:       3,
+		SchemasAnalyzed:    1,
+		SchemasNotAnalyzed: []string{"vendas"},
+		SchemasExcluded:    []string{"auditoria"},
+	}
+	if diff := cmp.Diff(want, coverage); diff != "" {
+		t.Errorf("coverage mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestCoverageIsIncompleteWithASchemaLeftOut pins the consequence of the schema
+// dimension: the only run entitled to claim it looked at everything is the one
+// that did.
+func TestCoverageIsIncompleteWithASchemaLeftOut(t *testing.T) {
+	complete := model.Coverage{TablesTotal: 3, TablesAnalyzed: 3}
+	if !complete.Complete() {
+		t.Fatal("a run with every table analyzed and no schema left out must be complete")
+	}
+
+	complete.SchemasNotAnalyzed = []string{"vendas"}
+	if complete.Complete() {
+		t.Error("a run with a schema left out must not report complete coverage")
 	}
 }
 

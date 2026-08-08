@@ -42,10 +42,14 @@ func contractResult() *model.Result {
 
 	r := model.NewResult(goldenVersion, "pt-br", goldenTime(), model.Coverage{
 		TablesTotal: 12, TablesAnalyzed: 9,
-		TablesNoPrivilege: []string{"public.folha"},
-		TablesExcluded:    []string{"public.tmp_carga"},
-		TablesUnsupported: []model.SkippedTable{{Table: "public.evento", Reason: model.ReasonNoPrimaryKey}},
-		CandidatesFound:   9, CandidatesValidated: 3, CandidatesTimedOut: 1,
+		TablesNoPrivilege:  []string{"public.folha"},
+		TablesExcluded:     []string{"public.tmp_carga"},
+		TablesUnsupported:  []model.SkippedTable{{Table: "public.evento", Reason: model.ReasonNoPrimaryKey}},
+		SchemasTotal:       4,
+		SchemasAnalyzed:    1,
+		SchemasNotAnalyzed: []string{"vendas"},
+		SchemasExcluded:    []string{"auditoria_2019", "auditoria_2020"},
+		CandidatesFound:    9, CandidatesValidated: 3, CandidatesTimedOut: 1,
 		StatsPrefilter: true, CandidatesStatsChecked: 9,
 		CandidatesStatsRejected: 4, CandidatesWithoutStats: 1,
 		StatsResetAt: &resetAt, PgStatStatements: true,
