@@ -189,6 +189,51 @@ func TestSQLFormatDemandsADestination(t *testing.T) {
 	}
 }
 
+// TestScopeFlagsAreMutuallyExclusive covers the pair that has no defensible
+// precedence: either answer would analyze a set the command line does not appear
+// to ask for.
+func TestScopeFlagsAreMutuallyExclusive(t *testing.T) {
+	for _, command := range []string{"discover", "audit"} {
+		stdout, stderr, code := run(command, "--schema", "vendas", "--all-schemas")
+
+		if code != ExitUsage {
+			t.Errorf("%s: exit code = %d, want %d (stderr: %s)", command, code, ExitUsage, stderr)
+		}
+		if !strings.Contains(stderr, "--schema") || !strings.Contains(stderr, "--all-schemas") {
+			t.Errorf("%s: the error must name both flags, got %q", command, stderr)
+		}
+		if stdout != "" {
+			t.Errorf("%s: a usage error must leave stdout empty, got %q", command, stdout)
+		}
+	}
+}
+
+// TestDefaultSchemaValueStillCountsAsGiven is the reason the check reads the
+// flag's changed state instead of comparing against the default: --schema public
+// is exactly as ambiguous as any other value beside --all-schemas, and comparing
+// values would wave it through.
+func TestDefaultSchemaValueStillCountsAsGiven(t *testing.T) {
+	_, stderr, code := run("discover", "--schema", "public", "--all-schemas")
+
+	if code != ExitUsage {
+		t.Fatalf("exit code = %d, want %d (stderr: %s)", code, ExitUsage, stderr)
+	}
+}
+
+// TestScopeConflictIsCaughtBeforeConnecting keeps the check from costing a
+// connection to a production server before it fires.
+func TestScopeConflictIsCaughtBeforeConnecting(t *testing.T) {
+	_, stderr, code := run("discover", "--schema", "vendas", "--all-schemas",
+		"--dsn", "postgres://nobody@127.0.0.1:1/none")
+
+	if code != ExitUsage {
+		t.Fatalf("exit code = %d, want %d (stderr: %s)", code, ExitUsage, stderr)
+	}
+	if strings.Contains(stderr, "connect") {
+		t.Errorf("the conflict must be caught before dialing, got %q", stderr)
+	}
+}
+
 // TestFormatIsValidatedBeforeConnecting keeps a typo from costing a connection
 // to a production server before it is caught.
 func TestFormatIsValidatedBeforeConnecting(t *testing.T) {

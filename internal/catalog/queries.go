@@ -27,6 +27,23 @@ SELECT n.nspname,
    AND n.nspname = ANY($1)
  ORDER BY n.nspname, c.relname`
 
+// querySchemas lists the schemas a scope can be resolved from.
+//
+// The USAGE check is what keeps a schema the role cannot open out of scope
+// entirely. Without it every table inside would land in the "no SELECT
+// privilege" list, which presents as a finding what is merely the absence of any
+// relationship between this role and that part of the database. Not being able
+// to read a table inside a schema you can open is evidence of an incomplete
+// grant; not being able to open the schema is scope.
+const querySchemas = `
+SELECT n.nspname
+  FROM pg_namespace n
+ WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+   AND n.nspname NOT LIKE 'pg_toast%'
+   AND n.nspname NOT LIKE 'pg_temp%'
+   AND has_schema_privilege(n.oid, 'USAGE')
+ ORDER BY n.nspname`
+
 // queryColumns reads attributes with both the formatted type and the base type
 // name. Comparing formatted types directly produces false negatives between
 // equivalent spellings of the same type, which is why both are kept.

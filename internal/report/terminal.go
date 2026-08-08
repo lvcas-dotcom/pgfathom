@@ -46,16 +46,32 @@ func Terminal(w io.Writer, r *model.Result, e Emphasis) error {
 // empty output is ambiguous: it can mean everything is fine, or that nothing was
 // looked at.
 func writeNothingFound(b *strings.Builder, r *model.Result) {
-	if r.Coverage.Complete() {
-		fmt.Fprintf(b, "  No structural findings. All %d tables analyzed.\n\n",
-			r.Coverage.TablesAnalyzed)
+	c := r.Coverage
+
+	if c.Complete() {
+		fmt.Fprintf(b, "  No structural findings. All %d tables analyzed.\n\n", c.TablesAnalyzed)
 		return
 	}
 
-	fmt.Fprintf(b, "  No structural findings in the %d tables that were analyzed.\n",
-		r.Coverage.TablesAnalyzed)
-	fmt.Fprintf(b, "  %d were skipped — see below. This is not a clean bill of health.\n\n",
-		r.Coverage.SkippedCount())
+	fmt.Fprintf(b, "  No structural findings in the %d tables that were analyzed.\n", c.TablesAnalyzed)
+	fmt.Fprintf(b, "  %s — see below. This is not a clean bill of health.\n\n", whatWasMissed(c))
+}
+
+// whatWasMissed names the omission in its own units. A schema left out of scope
+// makes coverage incomplete while skipping no table at all, and reporting that
+// as "0 tables were skipped" would turn the honest answer into a confusing one.
+func whatWasMissed(c model.Coverage) string {
+	var missed []string
+	if n := c.SkippedCount(); n > 0 {
+		missed = append(missed, fmt.Sprintf("%d tables were skipped", n))
+	}
+	if n := len(c.SchemasNotAnalyzed); n > 0 {
+		missed = append(missed, fmt.Sprintf("%d schemas were never looked at", n))
+	}
+	if len(missed) == 0 {
+		return "coverage is incomplete"
+	}
+	return strings.Join(missed, " and ")
 }
 
 func writeFindings(b *strings.Builder, e Emphasis, findings []model.Finding) {
@@ -133,6 +149,8 @@ func writeCoverage(b *strings.Builder, e Emphasis, c model.Coverage) {
 	}
 	fmt.Fprintf(b, "  %s\n", line)
 
+	writeSchemaCoverage(b, e, c)
+
 	writeSkipped(b, "no SELECT privilege", c.TablesNoPrivilege)
 	writeSkipped(b, "excluded by filter", c.TablesExcluded)
 
@@ -168,20 +186,50 @@ func writeCoverage(b *strings.Builder, e Emphasis, c model.Coverage) {
 	b.WriteString("\n")
 }
 
+// writeSchemaCoverage declares which schemas were left out.
+//
+// This is the line that keeps a report about public from implying the database
+// has nothing else in it. It has to appear on the run with no flags at all,
+// because whoever already knows to pass --all-schemas is not the person the
+// silence was misleading.
+//
+// A database whose only non-system schema is the one in scope gets nothing:
+// there is no omission to declare.
+func writeSchemaCoverage(b *strings.Builder, e Emphasis, c model.Coverage) {
+	if c.SchemasTotal <= 1 && len(c.SchemasExcluded) == 0 {
+		return
+	}
+
+	fmt.Fprintf(b, "  %d schemas · %d analyzed\n", c.SchemasTotal, c.SchemasAnalyzed)
+
+	if len(c.SchemasNotAnalyzed) > 0 {
+		line := formatSkipped("not analyzed", c.SchemasNotAnalyzed) +
+			" — pass --all-schemas to include them"
+		fmt.Fprintf(b, "    %s\n", e.Warn(line))
+	}
+	writeSkipped(b, "excluded by filter", c.SchemasExcluded)
+}
+
 func writeSkipped(b *strings.Builder, label string, tables []string) {
 	if len(tables) == 0 {
 		return
 	}
+	fmt.Fprintf(b, "    %s\n", formatSkipped(label, tables))
+}
 
+// formatSkipped renders a count, a reason and enough names to recognize the
+// group, without letting one long list bury the rest of the block.
+func formatSkipped(label string, names []string) string {
 	const maxListed = 5
-	shown := tables
+
+	shown := names
 	if len(shown) > maxListed {
 		shown = shown[:maxListed]
 	}
 
-	fmt.Fprintf(b, "    %d %s: %s", len(tables), label, strings.Join(shown, ", "))
-	if len(tables) > maxListed {
-		fmt.Fprintf(b, " and %d more", len(tables)-maxListed)
+	line := fmt.Sprintf("%d %s: %s", len(names), label, strings.Join(shown, ", "))
+	if len(names) > maxListed {
+		line += fmt.Sprintf(" and %d more", len(names)-maxListed)
 	}
-	b.WriteString("\n")
+	return line
 }

@@ -17,6 +17,7 @@
 <p align="center">
   <a href="#the-problem">Problem</a> ·
   <a href="#what-it-does">What it does</a> ·
+  <a href="#scope">Scope</a> ·
   <a href="#safety">Safety</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#prior-art">Prior art</a> ·
@@ -135,6 +136,44 @@ and the validation mode that produced it, and with the reminder that nothing ins
 meant to be run unread. DDL for a broken relationship stays commented out — it cannot pass
 while an orphan remains, and deciding what happens to an orphan row is a call about your
 domain, not one this tool is entitled to make.
+
+## Scope
+
+`pgfathom` analyses `public` and nothing else unless you say otherwise. That
+default is conservative on purpose: this tool gets pointed at production databases
+owned by someone who is nervous about it, and the run you make before reading any
+documentation should be the cheapest one, not the most expensive.
+
+```console
+$ pgfathom discover --all-schemas --exclude-schema 'auditoria_*'
+```
+
+| Flag | Scope |
+|---|---|
+| *(none)* | `public` |
+| `--schema a,b` | exactly those schemas |
+| `--all-schemas` | every non-system schema the role can access |
+| `--exclude-schema` | glob patterns of schemas to drop from scope |
+| `--exclude` | glob patterns of **tables** to skip, matched inside the schemas in scope |
+
+`--schema` and `--all-schemas` are mutually exclusive — there is no defensible
+precedence between them, so passing both is a usage error rather than a guess.
+
+Schema patterns and table patterns are separate flags, deliberately. If one
+pattern meant both, `--exclude legacy` would quietly stop skipping a table called
+`legacy` and start dropping the whole schema of that name.
+
+**Whatever is left out gets named.** Every run reports the schemas it did not
+analyse, including the run with no flags at all — a report about `public` that
+never mentions the other eleven schemas is accurate and still misleading, and
+whoever already knows to pass `--all-schemas` is not the person that silence was
+fooling.
+
+```
+  12 schemas · 1 analyzed
+    11 not analyzed: arquivo, financeiro, vendas, rh, fiscal and 6 more
+       — pass --all-schemas to include them
+```
 
 ## Safety
 

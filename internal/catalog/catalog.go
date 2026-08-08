@@ -3,6 +3,7 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"sort"
@@ -21,13 +22,144 @@ type Options struct {
 	// Exclude holds glob patterns matched against both "table" and
 	// "schema.table".
 	Exclude []string
+
+	// Scope is a resolved schema scope. When set it supersedes Schemas, and
+	// what it left out is stamped onto the coverage.
+	Scope *Scope
 }
 
 func (o Options) schemas() []string {
+	if o.Scope != nil {
+		return o.Scope.Schemas
+	}
 	if len(o.Schemas) == 0 {
 		return []string{"public"}
 	}
 	return o.Schemas
+}
+
+// ErrEmptyScope reports that no schema survived resolution. It is a usage
+// problem rather than an infrastructure one, and the caller needs to tell the
+// two apart: running over nothing would produce a report about nothing, which
+// reads exactly like a database with no findings.
+var ErrEmptyScope = errors.New("no schema in scope")
+
+// ScopeOptions says how the schema scope should be resolved.
+type ScopeOptions struct {
+	// Schemas is the explicit list. Ignored when All is set.
+	Schemas []string
+
+	// All resolves the scope from the catalog instead of from a list.
+	All bool
+
+	// ExcludeSchemas holds glob patterns matched against schema names. They are
+	// deliberately separate from Options.Exclude: letting a table pattern drop a
+	// schema would change the meaning of command lines that already exist.
+	ExcludeSchemas []string
+}
+
+// Scope is a resolved schema scope together with what it left out. The two
+// exclusion lists stay apart for the same reason excluded tables never share a
+// field with unreadable ones — asking for something to be skipped and never
+// asking for it at all are different facts about the run.
+type Scope struct {
+	// Schemas is what will be analyzed.
+	Schemas []string
+
+	// Excluded was removed by an exclusion pattern.
+	Excluded []string
+
+	// NotAnalyzed exists and was never asked for. This is the field that keeps a
+	// report about public from implying there is nothing else in the database.
+	NotAnalyzed []string
+
+	// Total counts the schemas visible to the connected role.
+	Total int
+}
+
+// ResolveScope reads the visible schemas and resolves the scope against them.
+func ResolveScope(ctx context.Context, pool *db.Pool, opts ScopeOptions) (*Scope, error) {
+	visible, err := readSchemas(ctx, pool)
+	if err != nil {
+		return nil, err
+	}
+	return resolveScope(visible, opts)
+}
+
+func readSchemas(ctx context.Context, pool *db.Pool) ([]string, error) {
+	rows, err := pool.Query(ctx, querySchemas)
+	if err != nil {
+		return nil, fmt.Errorf("reading schemas: %w", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("scanning schema: %w", err)
+		}
+		out = append(out, name)
+	}
+	return out, wrap(rows.Err(), "reading schemas")
+}
+
+// resolveScope holds the selection logic, kept apart from the read so it can be
+// tested exhaustively without a database.
+func resolveScope(visible []string, opts ScopeOptions) (*Scope, error) {
+	requested := SortedSchemas(opts.Schemas)
+	if opts.All {
+		requested = visible
+	} else if len(requested) == 0 {
+		requested = []string{"public"}
+	}
+
+	// Only reachable with All set, since the explicit path falls back to public:
+	// the role can open no schema at all. Saying so beats blaming the exclusion
+	// patterns for an emptiness they did not cause.
+	if len(requested) == 0 {
+		return nil, fmt.Errorf("%w: no schema is visible to the connected role", ErrEmptyScope)
+	}
+
+	scope := &Scope{Total: len(visible)}
+
+	for _, name := range requested {
+		if matchesSchema(opts.ExcludeSchemas, name) {
+			scope.Excluded = append(scope.Excluded, name)
+			continue
+		}
+		scope.Schemas = append(scope.Schemas, name)
+	}
+
+	if len(scope.Schemas) == 0 {
+		return nil, fmt.Errorf("%w: every schema requested was removed by an exclusion pattern", ErrEmptyScope)
+	}
+
+	inScope := make(map[string]struct{}, len(scope.Schemas)+len(scope.Excluded))
+	for _, name := range scope.Schemas {
+		inScope[name] = struct{}{}
+	}
+	for _, name := range scope.Excluded {
+		inScope[name] = struct{}{}
+	}
+
+	// Everything visible that nobody asked for. Reported on every run, including
+	// the one with no flags at all: whoever already knows to widen the scope is
+	// not the person the silence was misleading.
+	for _, name := range visible {
+		if _, ok := inScope[name]; !ok {
+			scope.NotAnalyzed = append(scope.NotAnalyzed, name)
+		}
+	}
+
+	return scope, nil
+}
+
+func (s *Scope) stamp(c *model.Coverage) {
+	c.SchemasTotal = s.Total
+	c.SchemasAnalyzed = len(s.Schemas)
+	c.SchemasNotAnalyzed = s.NotAnalyzed
+	c.SchemasExcluded = s.Excluded
 }
 
 // Result is what a catalog read produced, together with what it could not.
@@ -43,6 +175,10 @@ func Read(ctx context.Context, pool *db.Pool, opts Options) (*Result, error) {
 	tables, coverage, err := readRelations(ctx, pool, schemas, opts.Exclude)
 	if err != nil {
 		return nil, err
+	}
+
+	if opts.Scope != nil {
+		opts.Scope.stamp(&coverage)
 	}
 
 	if err := readColumns(ctx, pool, schemas, tables); err != nil {
@@ -318,6 +454,19 @@ func matchesAny(patterns []string, schema, table string) bool {
 			return true
 		}
 		if ok, err := path.Match(p, qualified); err == nil && ok {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesSchema reports whether a schema name matches an exclusion pattern.
+// Schema patterns are their own flag rather than an extension of the table ones:
+// a bare pattern that meant both would silently turn "skip the table called
+// legacy" into "drop the whole legacy schema".
+func matchesSchema(patterns []string, schema string) bool {
+	for _, p := range patterns {
+		if ok, err := path.Match(p, schema); err == nil && ok {
 			return true
 		}
 	}
