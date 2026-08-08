@@ -1,0 +1,33 @@
+-- pgfathom v0.7.0-test — relationships the data contradicts
+-- generated 2026-08-07T12:00:00Z
+-- server     PostgreSQL 16.2
+-- validation full — every row was examined
+--
+-- REVIEW BEFORE RUNNING. Every statement below was written from an
+-- inference about your schema. This tool has never altered your database
+-- and does not intend to; you are the one who decides what runs.
+
+-- Each block below is a relationship the data supports and whose integrity
+-- is already violated. The DDL is commented out on purpose: it cannot pass
+-- while an orphan remains, and what to do with an orphan row — delete it,
+-- repoint it, null it — is a decision about your domain, not about SQL.
+
+-- public.nota_fiscal.pedido_id → public.pedido.id
+-- 1284 orphan rows over 12 distinct values; containment 99.8% of 812400 rows examined
+
+-- Step 1 — look at what is orphaned.
+SELECT c."pedido_id" AS orphan_value, count(*) AS orphan_rows
+FROM "public"."nota_fiscal" AS c
+WHERE c."pedido_id" IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM "public"."pedido" AS p WHERE p."id" = c."pedido_id")
+GROUP BY 1
+ORDER BY 2 DESC;
+
+-- Step 2 — decide what happens to those rows. This tool does not decide.
+
+-- Step 3 — only once nothing comes back from step 1, declare the key.
+-- ALTER TABLE "public"."nota_fiscal"
+--     ADD CONSTRAINT "fk_nota_fiscal_pedido_id"
+--     FOREIGN KEY ("pedido_id") REFERENCES "public"."pedido" ("id")
+--     NOT VALID;
+

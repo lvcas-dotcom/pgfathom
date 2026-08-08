@@ -18,6 +18,7 @@ import (
 type auditOptions struct {
 	connection connectionOptions
 	format     string
+	out        string
 }
 
 func newAuditCommand(streams *Streams) *cobra.Command {
@@ -50,15 +51,19 @@ other.`,
 	f.DurationVar(&c.lockTimeout, "lock-timeout", c.lockTimeout, "lock timeout per query")
 	f.DurationVar(&c.idleTxTimeout, "idle-tx-timeout", c.idleTxTimeout, "idle transaction timeout")
 	f.IntVar(&c.concurrency, "concurrency", c.concurrency, "maximum simultaneous queries")
-	f.StringVar(&opts.format, "format", opts.format, "output format: table or json")
+	f.StringVar(&opts.format, "format", opts.format, "output format: table, json or sql")
+	f.StringVar(&opts.out, "out", "",
+		"directory for the reviewable .sql artifacts; required by --format sql")
 
 	return cmd
 }
 
 func runAudit(ctx context.Context, streams *Streams, opts *auditOptions) error {
-	if opts.format != "table" && opts.format != "json" {
-		return UsageError(fmt.Errorf("invalid --format %q: want table or json", opts.format))
+	if err := checkOutput(opts.format, opts.out); err != nil {
+		return err
 	}
+
+	started := time.Now()
 
 	warn := func(msg string) { _, _ = fmt.Fprintln(streams.Err, "warning: "+msg) }
 
@@ -78,9 +83,20 @@ func runAudit(ctx context.Context, streams *Streams, opts *auditOptions) error {
 	result.ServerVersion = pool.ServerVersion()
 	result.Schemas = cat.Schemas
 	result.Findings = audit.Findings(cat.Schemas)
+	result.Duration = time.Since(started)
 
-	if opts.format == "json" {
+	if opts.out != "" {
+		artifacts := report.AuditArtifacts(result)
+		if err := report.WriteArtifacts(opts.out, artifacts); err != nil {
+			return err
+		}
+		if opts.format == formatSQL {
+			return report.Manifest(streams.Out, opts.out, artifacts)
+		}
+	}
+
+	if opts.format == formatJSON {
 		return report.JSON(streams.Out, result)
 	}
-	return report.Terminal(streams.Out, result)
+	return report.Terminal(streams.Out, result, report.Emphasis(streams.Color()))
 }

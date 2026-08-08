@@ -1,0 +1,34 @@
+
+  pgfathom v0.7.0-test · PostgreSQL 16.2 · profile pt-br · threshold 0.50
+  full validation — every row was examined; verdicts are conclusive
+
+  BROKEN — the relationship is real; its integrity is not  (1)
+  ────────────────────────────────────────────────────────────────────────────────────────────────
+  relation                                         rows   values  orphan rows  orphan values  examined  method
+  public.nota_fiscal.pedido_id → public.pedido.id  99.8%  100.0%  1284         12             812.4k    full
+
+  CONFIRMED — total containment, verified row by row  (1)
+  ────────────────────────────────────────────────────────────────────────────────────────────────
+  relation                                      rows    values  orphan rows  orphan values  examined  method
+  public.pedido.cliente_id → public.cliente.id  100.0%  100.0%  0            0              1.3M      full
+
+  WEAK — the data supports no conclusion either way  (1)
+  ────────────────────────────────────────────────────────────────────────────────────────────────
+  relation                                    rows   values  orphan rows  orphan values  examined  method
+  public.item.produto_id → public.produto.id  70.0%  70.0%   12000        270            40.0k     full  containment 70% sits between rejection and breakage: a human call
+
+  UNVALIDATED — no evidence gathered; not the same as clean  (1)
+  ────────────────────────────────────────────────────────────────────────────────────────────────
+  public.log.usuario_id → public.usuario.id  0.82  validation exceeded the time ceiling
+
+  DETECTED — conventions read from the schema itself, added to pt-br
+  ────────────────────────────────────────────────────────────────────────────────────────────────
+  reference suffix  _id  102 occurrences (22%)
+
+  1 broken · 1 confirmed · 1 weak · 1 unvalidated · 0 discarded · 4.2s
+  12 tables · 9 analyzed · 3 skipped
+    2 no SELECT privilege: public.folha, public.salario
+    1 no primary key: public.evento
+  stats prefilter: 9 checked · 4 rejected · 1 without statistics
+  ! statistics reset time unknown — usage counters carry no meaning
+

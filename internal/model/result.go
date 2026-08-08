@@ -14,6 +14,10 @@ type Result struct {
 	ToolVersion   string    `json:"tool_version"`
 	GeneratedAt   time.Time `json:"generated_at"`
 
+	// Duration is how long the run took. Two results are only comparable
+	// against each other when the cost of producing them is on the record.
+	Duration time.Duration `json:"duration_ns"`
+
 	// ServerVersion is the PostgreSQL version analyzed. Whether a finding
 	// applies at all can depend on it.
 	ServerVersion string `json:"server_version,omitempty"`
@@ -29,7 +33,15 @@ type Result struct {
 
 	Schemas    []Schema    `json:"schemas"`
 	Candidates []Candidate `json:"candidates,omitempty"`
-	Findings   []Finding   `json:"findings,omitempty"`
+
+	// Discarded fell below the score threshold or was killed by the statistical
+	// prefilter. It is a separate field rather than a verdict inside Candidates
+	// so that no consumer has to inspect a score to learn whether a candidate
+	// survived triage — the same reason a declared key never shares a field
+	// with an inferred one.
+	Discarded []Candidate `json:"discarded,omitempty"`
+
+	Findings []Finding `json:"findings,omitempty"`
 
 	Coverage Coverage `json:"coverage"`
 }

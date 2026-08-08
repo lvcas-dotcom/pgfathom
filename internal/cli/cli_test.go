@@ -29,6 +29,10 @@ func TestExitCodes(t *testing.T) {
 		{"invalid colour is a usage error", []string{"--color", "mauve", "version"}, ExitUsage},
 		{"invalid log level is a usage error", []string{"--log-level", "shout", "version"}, ExitUsage},
 		{"version takes no arguments", []string{"version", "extra"}, ExitUsage},
+		{"unknown format on discover is a usage error", []string{"discover", "--format", "mauve"}, ExitUsage},
+		{"unknown format on audit is a usage error", []string{"audit", "--format", "mauve"}, ExitUsage},
+		{"sql format without a destination is a usage error", []string{"discover", "--format", "sql"}, ExitUsage},
+		{"sql format without a destination is a usage error on audit", []string{"audit", "--format", "sql"}, ExitUsage},
 	}
 
 	for _, tt := range tests {
@@ -163,5 +167,70 @@ func TestLoggingStaysOnStderr(t *testing.T) {
 		if strings.Contains(line, "level=") {
 			t.Errorf("log record leaked into stdout: %q", line)
 		}
+	}
+}
+
+// TestSQLFormatDemandsADestination covers the decision that keeps a generated
+// artifact from being piped: .sql goes to a file you can open, never to stdout.
+// The message has to name the flag, or the constraint reads as a bug.
+func TestSQLFormatDemandsADestination(t *testing.T) {
+	for _, command := range []string{"discover", "audit"} {
+		stdout, stderr, code := run(command, "--format", "sql")
+
+		if code != ExitUsage {
+			t.Errorf("%s: exit code = %d, want %d", command, code, ExitUsage)
+		}
+		if !strings.Contains(stderr, "--out") {
+			t.Errorf("%s: the error must name the flag that fixes it, got %q", command, stderr)
+		}
+		if stdout != "" {
+			t.Errorf("%s: a usage error must leave stdout empty, got %q", command, stdout)
+		}
+	}
+}
+
+// TestFormatIsValidatedBeforeConnecting keeps a typo from costing a connection
+// to a production server before it is caught.
+func TestFormatIsValidatedBeforeConnecting(t *testing.T) {
+	_, stderr, code := run("discover", "--format", "mauve", "--dsn", "postgres://nobody@127.0.0.1:1/none")
+
+	if code != ExitUsage {
+		t.Fatalf("exit code = %d, want %d (stderr: %s)", code, ExitUsage, stderr)
+	}
+	if !strings.Contains(stderr, "table, json or sql") {
+		t.Errorf("the error must list the accepted formats, got %q", stderr)
+	}
+}
+
+// TestValidationStageReportsWhatRanNotWhatWasAsked covers a contradiction found
+// against a real schema: a run started without --full announced "nothing here
+// is confirmed" directly above two confirmations, because every table had fit
+// the sample target and been read whole.
+func TestValidationStageReportsWhatRanNotWhatWasAsked(t *testing.T) {
+	tests := []struct {
+		name             string
+		full, sampled    bool
+		wantConclusive   bool
+		wantSampleCaveat bool
+	}{
+		{name: "full run", full: true, wantConclusive: true},
+		{name: "sampling actually happened", sampled: true, wantSampleCaveat: true},
+		{name: "sampled mode but everything fit", wantConclusive: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := validationStage(tt.full, 100_000, tt.sampled)
+
+			if conclusive := strings.Contains(got, "conclusive"); conclusive != tt.wantConclusive {
+				t.Errorf("conclusive = %v, want %v: %q", conclusive, tt.wantConclusive, got)
+			}
+			if caveat := strings.Contains(got, "nothing here is confirmed"); caveat != tt.wantSampleCaveat {
+				t.Errorf("sampling caveat = %v, want %v: %q", caveat, tt.wantSampleCaveat, got)
+			}
+			if tt.wantConclusive && strings.HasPrefix(got, "!") {
+				t.Errorf("a conclusive run must not be flagged as a warning: %q", got)
+			}
+		})
 	}
 }

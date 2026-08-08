@@ -22,7 +22,7 @@ func result(coverage model.Coverage, findings ...model.Finding) *model.Result {
 func render(t *testing.T, r *model.Result) string {
 	t.Helper()
 	var b bytes.Buffer
-	if err := report.Terminal(&b, r); err != nil {
+	if err := report.Terminal(&b, r, false); err != nil {
 		t.Fatalf("Terminal: %v", err)
 	}
 	return b.String()

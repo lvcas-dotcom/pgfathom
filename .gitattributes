@@ -1,0 +1,6 @@
+# Golden files are byte-exact fixtures: the test compares them against what the
+# renderer produced in memory, which always uses LF. A CRLF checkout — the
+# default on Windows, including the windows-latest CI runner — makes every line
+# differ by an invisible trailing \r, and the failure reads as two identical
+# lines that refuse to match.
+*.golden text eol=lf

@@ -1,0 +1,16 @@
+-- pgfathom v0.7.0-test — relationships the data confirms
+-- generated 2026-08-07T12:00:00Z
+-- server     PostgreSQL 16.2
+-- validation sampled — a subset of rows was examined
+--
+-- REVIEW BEFORE RUNNING. Every statement below was written from an
+-- inference about your schema. This tool has never altered your database
+-- and does not intend to; you are the one who decides what runs.
+--
+-- ! THIS RUN WAS SAMPLED. Nothing here is confirmed, and every orphan
+--   count is a floor rather than a total: orphans arrive in batches and
+--   cluster on the same pages, which is what page sampling is worst at
+--   finding. Re-run with --full before concluding anything from absence.
+
+-- This run confirmed nothing, and could not have: a sampled run cannot
+-- prove the absence of an orphan. Re-run with --full to reach a confirmation.

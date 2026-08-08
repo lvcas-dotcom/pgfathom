@@ -1,8 +1,10 @@
-// Package report renders results for consumption.
+// Package report renders results for consumption: a grouped table for a human,
+// a versioned JSON document for a machine, and reviewable .sql artifacts for
+// whoever will act on the findings.
 //
-// This phase carries the minimum the audit command needs. The full report, with
-// grouping by verdict and pinned golden files, belongs to a later phase: fixing
-// output format while the content is still moving creates dead maintenance.
+// Nothing here touches the database or reads user data. It receives a finished
+// model.Result and turns it into text, which is what makes every output format
+// testable without infrastructure.
 package report
 
 import (
@@ -22,7 +24,7 @@ var findingTitles = map[model.FindingKind]string{
 }
 
 // Terminal writes the audit result as a grouped table.
-func Terminal(w io.Writer, r *model.Result) error {
+func Terminal(w io.Writer, r *model.Result, e Emphasis) error {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "\n  %s %s · PostgreSQL %s · %d tables in scope\n\n",
@@ -31,10 +33,10 @@ func Terminal(w io.Writer, r *model.Result) error {
 	if len(r.Findings) == 0 {
 		writeNothingFound(&b, r)
 	} else {
-		writeFindings(&b, r.Findings)
+		writeFindings(&b, e, r.Findings)
 	}
 
-	writeCoverage(&b, r.Coverage)
+	writeCoverage(&b, e, r.Coverage)
 
 	_, err := io.WriteString(w, b.String())
 	return err
@@ -56,7 +58,7 @@ func writeNothingFound(b *strings.Builder, r *model.Result) {
 		r.Coverage.SkippedCount())
 }
 
-func writeFindings(b *strings.Builder, findings []model.Finding) {
+func writeFindings(b *strings.Builder, e Emphasis, findings []model.Finding) {
 	byKind := make(map[model.FindingKind][]model.Finding)
 	for _, f := range findings {
 		byKind[f.Kind] = append(byKind[f.Kind], f)
@@ -75,12 +77,12 @@ func writeFindings(b *strings.Builder, findings []model.Finding) {
 		if title == "" {
 			title = string(kind)
 		}
-		fmt.Fprintf(b, "  %s  (%d)\n", title, len(group))
-		fmt.Fprintf(b, "  %s\n", strings.Repeat("─", 74))
+		fmt.Fprintf(b, "  %s\n", e.Bold(fmt.Sprintf("%s  (%d)", title, len(group))))
+		fmt.Fprintf(b, "  %s\n", strings.Repeat("─", ruleWidth))
 
 		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
 		for _, f := range group {
-			_, _ = fmt.Fprintf(tw, "  %s\t%s\n", f.Object, formatMetrics(f.Metrics))
+			writeRow(tw, f.Object, formatMetrics(f.Metrics))
 		}
 		_ = tw.Flush()
 		b.WriteString("\n")
@@ -124,12 +126,12 @@ func humanCount(n int64) string {
 
 // writeCoverage always runs. A clean report has to mean "I looked and it is
 // clean", never "I could not look".
-func writeCoverage(b *strings.Builder, c model.Coverage) {
-	fmt.Fprintf(b, "  %d tables · %d analyzed", c.TablesTotal, c.TablesAnalyzed)
+func writeCoverage(b *strings.Builder, e Emphasis, c model.Coverage) {
+	line := fmt.Sprintf("%d tables · %d analyzed", c.TablesTotal, c.TablesAnalyzed)
 	if n := c.SkippedCount(); n > 0 {
-		fmt.Fprintf(b, " · %d skipped", n)
+		line = e.Warn(line + fmt.Sprintf(" · %d skipped", n))
 	}
-	b.WriteString("\n")
+	fmt.Fprintf(b, "  %s\n", line)
 
 	writeSkipped(b, "no SELECT privilege", c.TablesNoPrivilege)
 	writeSkipped(b, "excluded by filter", c.TablesExcluded)

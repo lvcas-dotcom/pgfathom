@@ -1,0 +1,39 @@
+-- pgfathom v0.7.0-test — constraints declared NOT VALID and never verified
+-- generated 2026-08-07T12:00:00Z
+-- server     PostgreSQL 16.2
+-- validation none — this run made no inferences to validate
+--
+-- REVIEW BEFORE RUNNING. Every statement below was written from an
+-- inference about your schema. This tool has never altered your database
+-- and does not intend to; you are the one who decides what runs.
+
+-- A NOT VALID constraint blocks new violations but never checked the rows
+-- that were already there. It renders as an ordinary foreign key in \d and
+-- in every ERD tool, which is what makes it worth finding.
+--
+-- Running VALIDATE blindly on a table with historical violations fails only
+-- after a full scan, so the check comes first.
+
+-- public.item — constraint "item_composto_fkey" references public.produto
+-- Step 1 — would it pass?
+SELECT count(*) AS violating_rows
+FROM "public"."item" AS c
+WHERE c."empresa_id" IS NOT NULL
+  AND c."produto_id" IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM "public"."produto" AS p WHERE p."empresa_id" = c."empresa_id" AND p."id" = c."produto_id");
+
+-- Step 2 — if step 1 returns zero, validate. It scans the table under a
+-- lock that blocks neither reads nor writes.
+-- ALTER TABLE "public"."item" VALIDATE CONSTRAINT "item_composto_fkey";
+
+-- public.nota_fiscal — constraint "nota_fiscal_pedido_fkey" references public.pedido
+-- Step 1 — would it pass?
+SELECT count(*) AS violating_rows
+FROM "public"."nota_fiscal" AS c
+WHERE c."pedido_id" IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM "public"."pedido" AS p WHERE p."id" = c."pedido_id");
+
+-- Step 2 — if step 1 returns zero, validate. It scans the table under a
+-- lock that blocks neither reads nor writes.
+-- ALTER TABLE "public"."nota_fiscal" VALIDATE CONSTRAINT "nota_fiscal_pedido_fkey";
+

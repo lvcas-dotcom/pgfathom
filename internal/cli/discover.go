@@ -24,6 +24,7 @@ type discoverOptions struct {
 	profile         string
 	minScore        float64
 	format          string
+	out             string
 	includeRejected bool
 	noDetect        bool
 	noStats         bool
@@ -32,15 +33,53 @@ type discoverOptions struct {
 	sampleRows      int64
 }
 
+// Output formats. sql is deliberately absent from stdout: a format that fits in
+// a pipe invites the pipe, and then the mandatory-review header is decoration
+// nobody read because nobody opened the file.
+const (
+	formatTable = "table"
+	formatJSON  = "json"
+	formatSQL   = "sql"
+)
+
+// checkOutput validates the pair of flags every result-producing command
+// shares. An unknown format is a usage error, never a silent fall back to a
+// default: degrading quietly would hand back a report in a shape the caller
+// did not ask for.
+func checkOutput(format, out string) error {
+	switch format {
+	case formatTable, formatJSON:
+	case formatSQL:
+		if out == "" {
+			return UsageError(fmt.Errorf(
+				"--format sql writes reviewable files, not stdout: pass --out <directory>"))
+		}
+	default:
+		return UsageError(fmt.Errorf("invalid --format %q: want table, json or sql", format))
+	}
+	return nil
+}
+
 // validationStage tells the user what the verdicts in front of them can and
 // cannot claim. The sampled warning is not a footnote: a clean sample is not
 // evidence of absence, and the report has to say so where it cannot be missed.
-func validationStage(full bool, sampleRows int64) string {
-	if full {
+//
+// It reports the mode that ran, not the one that was asked for. Sampling is
+// decided per candidate, and a table that fits the target is read whole — so a
+// run started without --full can still end up conclusive throughout. Announcing
+// "nothing here is confirmed" above a list of confirmations is the tool
+// contradicting itself, which costs more trust than the caveat buys.
+func validationStage(full bool, sampleRows int64, sampled bool) string {
+	switch {
+	case full:
 		return "full validation — every row was examined; verdicts are conclusive"
+	case sampled:
+		return fmt.Sprintf("! sampled validation (%d rows/table target) — orphan counts are floors, "+
+			"nothing here is confirmed; re-run with --full to prove absence", sampleRows)
+	default:
+		return fmt.Sprintf("sampled mode (%d rows/table target), but every table fit the target "+
+			"and was read whole; verdicts are conclusive", sampleRows)
 	}
-	return fmt.Sprintf("! sampled validation (%d rows/table target) — orphan counts are floors, "+
-		"nothing here is confirmed; re-run with --full to prove absence", sampleRows)
 }
 
 type connectionOptions struct {
@@ -76,11 +115,16 @@ func newDiscoverCommand(streams *Streams) *cobra.Command {
 		Short: "Infer relationships the schema never declared",
 		Long: `Infer foreign keys that exist in the data but not in the catalog.
 
-This version generates and scores candidates from names, types and catalog
-metadata. It does NOT read your data, so nothing it reports is confirmed — every
-candidate is a question worth asking, not an answer.
+Candidates are raised from names, types and catalog metadata, then checked
+against the data itself: every verdict comes with the containment and orphan
+counts that produced it, and every score with its signals, so both can be
+argued with rather than merely accepted.
 
-Every score comes with the signals that produced it, so it can be argued with.`,
+Sampled validation is the default and cannot confirm anything — it is triage.
+Pass --full for the conclusive mode.
+
+With --out, the findings are also written as reviewable .sql files: the DDL for
+what the data confirms, and the orphan queries for what it contradicts.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runDiscover(cmd.Context(), streams, opts)
@@ -102,7 +146,9 @@ Every score comes with the signals that produced it, so it can be argued with.`,
 		"naming profile: a built-in name or a path to a TOML file")
 	f.Float64Var(&opts.minScore, "min-score", opts.minScore,
 		"discard candidates scoring below this")
-	f.StringVar(&opts.format, "format", opts.format, "output format: table or json")
+	f.StringVar(&opts.format, "format", opts.format, "output format: table, json or sql")
+	f.StringVar(&opts.out, "out", "",
+		"directory for the reviewable .sql artifacts; required by --format sql")
 	f.BoolVar(&opts.includeRejected, "include-rejected", false,
 		"also show candidates discarded by the threshold")
 	f.BoolVar(&opts.noDetect, "no-detect-naming", false,
@@ -120,12 +166,14 @@ Every score comes with the signals that produced it, so it can be argued with.`,
 }
 
 func runDiscover(ctx context.Context, streams *Streams, opts *discoverOptions) error {
-	if opts.format != "table" && opts.format != "json" {
-		return UsageError(fmt.Errorf("invalid --format %q: want table or json", opts.format))
+	if err := checkOutput(opts.format, opts.out); err != nil {
+		return err
 	}
 	if opts.minScore < 0 || opts.minScore > 1 {
 		return UsageError(fmt.Errorf("invalid --min-score %.2f: want a value between 0 and 1", opts.minScore))
 	}
+
+	started := time.Now()
 
 	naming, err := profile.Load(opts.profile)
 	if err != nil {
@@ -216,11 +264,26 @@ func runDiscover(ctx context.Context, streams *Streams, opts *discoverOptions) e
 	result.Candidates = inferred.Candidates
 	result.Findings = observations(inferred)
 
+	// Discarded live in their own field rather than beside the survivors: a
+	// consumer must not have to inspect a score to learn whether a candidate
+	// made it through triage.
 	if opts.includeRejected {
-		result.Candidates = append(result.Candidates, inferred.Discarded...)
+		result.Discarded = inferred.Discarded
 	}
 
-	if opts.format == "json" {
+	result.Duration = time.Since(started)
+
+	if opts.out != "" {
+		artifacts := report.DiscoverArtifacts(result)
+		if err := report.WriteArtifacts(opts.out, artifacts); err != nil {
+			return err
+		}
+		if opts.format == formatSQL {
+			return report.Manifest(streams.Out, opts.out, artifacts)
+		}
+	}
+
+	if opts.format == formatJSON {
 		return report.JSON(streams.Out, result)
 	}
 
@@ -229,8 +292,9 @@ func runDiscover(ctx context.Context, streams *Streams, opts *discoverOptions) e
 		Discarded:       inferred.Discarded,
 		MinScore:        opts.minScore,
 		ShowDiscarded:   opts.includeRejected,
-		ValidationStage: validationStage(opts.full, opts.sampleRows),
+		ValidationStage: validationStage(opts.full, opts.sampleRows, result.Sampled()),
 		Detection:       detection,
+		Emphasis:        report.Emphasis(streams.Color()),
 	})
 }
 

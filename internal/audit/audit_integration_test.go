@@ -158,7 +158,7 @@ func TestNoPlantedValueEscapes(t *testing.T) {
 			result := run(t, fixture)
 
 			var terminal, jsonOut bytes.Buffer
-			if err := report.Terminal(&terminal, result); err != nil {
+			if err := report.Terminal(&terminal, result, false); err != nil {
 				t.Fatalf("rendering terminal: %v", err)
 			}
 			if err := report.JSON(&jsonOut, result); err != nil {

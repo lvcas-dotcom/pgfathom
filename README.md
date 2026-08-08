@@ -31,8 +31,8 @@
 > **Pre-release. Under active development.**
 > The design is specified in [`docs/PGFATHOM.md`](docs/PGFATHOM.md) and implementation is
 > tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md). `pgfathom audit` and `pgfathom discover`
-> both run end to end today, verdicts included. Still missing before a release: the
-> reviewable `.sql` artifacts, and the benchmark corpus. Terminal output shown below is
+> both run end to end today, verdicts and reviewable `.sql` artifacts included. Still
+> missing before a release: the benchmark corpus. Terminal output shown below is
 > the target design, not a recording. Recovery-rate benchmarks will be published here once
 > the tool runs against the reference corpus — no numbers are claimed until then.
 
@@ -118,6 +118,23 @@ in the world finds that one — `resp_tecnico` looks nothing like `funcionario`.
 finds it by reading the join predicates out of your own view and function definitions.
 
 Output comes as a terminal report, a versioned JSON model, and reviewable `.sql` artifacts.
+
+```console
+$ pgfathom discover --full --out ./findings
+```
+
+```
+  findings/confirmed.sql   2
+  findings/broken.sql      3
+
+  Review every file before running any of it.
+```
+
+The `.sql` files are written, never piped. Each one opens with the version, the timestamp
+and the validation mode that produced it, and with the reminder that nothing inside was
+meant to be run unread. DDL for a broken relationship stays commented out — it cannot pass
+while an orphan remains, and deciding what happens to an orphan row is a call about your
+domain, not one this tool is entitled to make.
 
 ## Safety
 
@@ -250,7 +267,7 @@ like from a schema that finally knows its own relationships.
 | 4 | Planner-statistics prefilter | Done |
 | 5 | Data validation · `pgfathom discover` | Done |
 | 6 | Join mining from views and functions | Done |
-| 7 | Terminal, JSON and SQL output | In progress |
+| 7 | Terminal, JSON and SQL output | Done |
 | 8 | Benchmark corpus and release | Planned |
 
 Full detail in [`docs/ROADMAP.md`](docs/ROADMAP.md).
