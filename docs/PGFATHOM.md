@@ -575,6 +575,8 @@ pgfathom discover [flags]
 
   --dsn string           string de conexão (prefira PGFATHOM_DSN)
   --schema strings       schemas a analisar (padrão: public)
+  --all-schemas          todo schema não-sistema acessível; exclui --schema
+  --exclude-schema       padrões de schema a remover do escopo
   --exclude strings      padrões de tabela a ignorar
   --profile string       perfil de nomenclatura (padrão: pt-br)
   --full                 validar contra todas as linhas, sem amostragem
@@ -594,6 +596,16 @@ pgfathom audit [flags]
 pgfathom check --baseline model.json [flags]   # fase 2
   # sai com código diferente de zero quando há regressão
 ```
+
+### Sobre o escopo de schema
+
+O padrão continua `public`, e ampliar escopo é opt-in. Vale a mesma razão da seção de carga: a execução que alguém faz antes de ler qualquer documentação precisa ser a mais barata, não a mais cara, porque ela acontece contra um banco de produção que não é de quem está rodando. Varrer o banco inteiro sem flag transformaria o caso silencioso no caso mais caro possível.
+
+`--schema` e `--all-schemas` são mutuamente exclusivas. Não existe precedência defensável entre as duas: qualquer que fosse, produziria uma linha de comando cujo escopo real não é o que ela aparenta pedir. A detecção de que `--schema` foi fornecida usa o estado de alteração da flag, nunca comparação com o valor padrão — `--schema public --all-schemas` é exatamente o caso ambíguo que a regra existe para recusar.
+
+Padrão de schema e padrão de tabela são flags separadas de propósito. Um padrão único que significasse as duas coisas faria `--exclude legacy` deixar de pular uma tabela chamada `legacy` e passar a derrubar o schema de mesmo nome, sem que ninguém digitasse nada diferente — mudança silenciosa de significado, que é a regra 4 vista de outro ângulo.
+
+Todo schema visível que ficou fora do escopo aparece no bloco de cobertura, inclusive na execução sem flag alguma. Relatório sobre `public` que não menciona os outros onze schemas está correto e engana, e quem já sabe que precisa de `--all-schemas` não é quem está sendo enganado.
 
 ---
 
