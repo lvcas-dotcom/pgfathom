@@ -30,12 +30,11 @@
 > [!IMPORTANT]
 > **Pre-release. Under active development.**
 > The design is specified in [`docs/PGFATHOM.md`](docs/PGFATHOM.md) and implementation is
-> tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md). What runs today: `pgfathom audit`
-> end to end, and `pgfathom discover` up to candidate generation, scoring and the
-> statistical prefilter — **validation against data is not implemented yet, so nothing
-> `discover` reports is confirmed**. Terminal output shown below is the target design,
-> not a recording. Recovery-rate benchmarks will be published here once the tool runs
-> against the reference corpus — no numbers are claimed until then.
+> tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md). `pgfathom audit` and `pgfathom discover`
+> both run end to end today, verdicts included. Still missing before a release: the
+> reviewable `.sql` artifacts, and the benchmark corpus. Terminal output shown below is
+> the target design, not a recording. Recovery-rate benchmarks will be published here once
+> the tool runs against the reference corpus — no numbers are claimed until then.
 
 ---
 
@@ -267,7 +266,7 @@ like from a schema that finally knows its own relationships.
 | 3.5 | Naming-convention detection from the schema itself | Done |
 | 4 | Planner-statistics prefilter | Done |
 | 5 | Data validation · `pgfathom discover` | Done |
-| 6 | Join mining from views and functions | Planned |
+| 6 | Join mining from views and functions | Done |
 | 7 | Terminal, JSON and SQL output | Done |
 | 8 | Benchmark corpus and release | Planned |
 
