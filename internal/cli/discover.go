@@ -11,12 +11,10 @@ import (
 	"github.com/lvcas-dotcom/pgfathom/internal/buildinfo"
 	"github.com/lvcas-dotcom/pgfathom/internal/catalog"
 	"github.com/lvcas-dotcom/pgfathom/internal/db"
+	"github.com/lvcas-dotcom/pgfathom/internal/discovery"
 	"github.com/lvcas-dotcom/pgfathom/internal/infer"
-	"github.com/lvcas-dotcom/pgfathom/internal/model"
 	"github.com/lvcas-dotcom/pgfathom/internal/profile"
 	"github.com/lvcas-dotcom/pgfathom/internal/report"
-	"github.com/lvcas-dotcom/pgfathom/internal/sqlprobe"
-	"github.com/lvcas-dotcom/pgfathom/internal/stats"
 	"github.com/lvcas-dotcom/pgfathom/internal/validate"
 )
 
@@ -199,8 +197,6 @@ func runDiscover(ctx context.Context, streams *Streams, opts *discoverOptions) e
 		return UsageError(fmt.Errorf("invalid --min-score %.2f: want a value between 0 and 1", opts.minScore))
 	}
 
-	started := time.Now()
-
 	naming, err := profile.Load(opts.profile)
 	if err != nil {
 		return UsageError(err)
@@ -214,90 +210,37 @@ func runDiscover(ctx context.Context, streams *Streams, opts *discoverOptions) e
 	}
 	defer pool.Close()
 
-	cat, err := catalog.Read(ctx, pool, catalog.Options{Scope: scope, Exclude: opts.connection.exclude})
-	if err != nil {
-		return err
-	}
-
-	// Detection is on by default: whoever needs it is precisely whoever does not
-	// know they need it. Measured against real schemas, a missing local
-	// convention cost 78 points of recall and failed silently.
-	var detection model.NamingDetection
-	active := naming
-	if !opts.noDetect {
-		detection = naming.Detect(cat.Schemas)
-		active = naming.WithDetected(detection)
-	}
-
-	// Usage evidence is what breaks the ceiling of name matching. A failure to
-	// read it costs signal, never correctness, so it degrades to a warning.
-	var evidence sqlprobe.Evidence
-	if !opts.noProbe {
-		probed, err := sqlprobe.Probe(ctx, pool, cat.Schemas)
-		if err != nil {
-			warn("usage evidence skipped: " + err.Error())
-		} else {
-			evidence = *probed
-		}
-	}
-
-	inferred := infer.Generate(cat.Schemas, infer.Options{
-		Profile:  active,
-		MinScore: opts.minScore,
-		Evidence: evidence.Joins,
-	})
-
-	coverage := cat.Coverage
-	coverage.CandidatesFound = len(inferred.Candidates) + len(inferred.Discarded)
-	coverage.PgStatStatements = evidence.StatementsAvailable
-
-	// The prefilter runs on the threshold survivors only: every candidate it
-	// kills is an anti-join that validation will not fire against someone's
-	// production server. A failure to read statistics is degraded to a warning,
-	// never to an opinion about candidates.
-	if !opts.noStats {
-		pre, err := stats.Prefilter(ctx, pool, cat.Schemas, inferred.Candidates, stats.Options{})
-		if err != nil {
-			warn("statistical prefilter skipped: " + err.Error())
-		} else {
-			inferred.Candidates = pre.Kept
-			inferred.Discarded = append(inferred.Discarded, pre.Rejected...)
-			coverage.StatsPrefilter = true
-			coverage.CandidatesStatsChecked = pre.Checked
-			coverage.CandidatesStatsRejected = len(pre.Rejected)
-			coverage.CandidatesWithoutStats = pre.NoStats
-		}
-	}
-
-	validated, err := validate.Run(ctx, pool, cat.Schemas, inferred.Candidates, validate.Options{
-		Full:        opts.full,
-		TargetRows:  opts.sampleRows,
-		Timeout:     opts.connection.statementTimeout,
-		Concurrency: opts.connection.concurrency,
-	})
-	if err != nil {
-		return err
-	}
-	inferred.Candidates = validated.Candidates
-	coverage.CandidatesValidated = validated.Validated
-	coverage.CandidatesTimedOut = validated.TimedOut
-
 	version, _, _ := buildinfo.Resolve()
-	result := model.NewResult(version, naming.Name, time.Now().UTC(), coverage)
-	result.ServerVersion = pool.ServerVersion()
-	result.Naming = detection
-	result.Schemas = cat.Schemas
-	result.Candidates = inferred.Candidates
-	result.Findings = observations(inferred)
+
+	run, err := discovery.Run(ctx, pool, discovery.Options{
+		Profile:     naming,
+		Scope:       scope,
+		Exclude:     opts.connection.exclude,
+		MinScore:    opts.minScore,
+		ToolVersion: version,
+		NoDetect:    opts.noDetect,
+		NoStats:     opts.noStats,
+		NoProbe:     opts.noProbe,
+		Validation: validate.Options{
+			Full:        opts.full,
+			TargetRows:  opts.sampleRows,
+			Timeout:     opts.connection.statementTimeout,
+			Concurrency: opts.connection.concurrency,
+		},
+		Warn: func(_ discovery.Stage, msg string) { warn(msg) },
+	})
+	if err != nil {
+		return err
+	}
+
+	result := run.Result
 
 	// Discarded live in their own field rather than beside the survivors: a
 	// consumer must not have to inspect a score to learn whether a candidate
 	// made it through triage.
 	if opts.includeRejected {
-		result.Discarded = inferred.Discarded
+		result.Discarded = run.Discarded
 	}
-
-	result.Duration = time.Since(started)
 
 	if opts.out != "" {
 		artifacts := report.DiscoverArtifacts(result)
@@ -315,37 +258,13 @@ func runDiscover(ctx context.Context, streams *Streams, opts *discoverOptions) e
 
 	return report.Discover(streams.Out, report.DiscoverView{
 		Result:          result,
-		Discarded:       inferred.Discarded,
+		Discarded:       run.Discarded,
 		MinScore:        opts.minScore,
 		ShowDiscarded:   opts.includeRejected,
 		ValidationStage: validationStage(opts.full, opts.sampleRows, result.Sampled()),
-		Detection:       detection,
+		Detection:       run.Detection,
 		Emphasis:        report.Emphasis(streams.Color()),
 	})
-}
-
-// observations turns what inference recognized but could not use into findings,
-// so a deliberate limitation reads as an observation rather than as silence.
-func observations(res *infer.Result) []model.Finding {
-	out := make([]model.Finding, 0, len(res.Polymorphic)+len(res.Skipped))
-
-	for _, p := range res.Polymorphic {
-		out = append(out, model.Finding{
-			Kind:   model.FindingPolymorphicPair,
-			Object: p.Table + "." + p.ReferenceColumn,
-			Detail: "only meaningful beside " + p.TypeColumn + "; polymorphic references are out of scope",
-		})
-	}
-
-	for _, s := range res.Skipped {
-		out = append(out, model.Finding{
-			Kind:   model.FindingUnsupportedTarget,
-			Object: s.Child.String(),
-			Detail: string(s.Reason) + " (" + s.Target + ")",
-		})
-	}
-
-	return out
 }
 
 // connect resolves credentials, opens the pool, resolves the schema scope and

@@ -20,20 +20,20 @@
 
 ## 4. A execução como unidade
 
-- [ ] 4.1 Criar `internal/discovery` com as opções da execução, sem dependência de cobra
-- [ ] 4.2 Mover a sequência de estágios do comando para a unidade, preservando ordem e regime de erro de cada um
-- [ ] 4.3 Estágio que degrada reporta o aviso a quem chamou, em vez de escrever em stream
-- [ ] 4.4 Devolver o `model.Result` montado e o que o relatório precisa além dele
-- [ ] 4.5 Identificar cada estágio, deixando o ponto de medição pronto para a fase 8 sem medir nada agora
-- [ ] 4.6 `internal/cli` reduzido a validar flags, montar opções, chamar e renderizar
-- [ ] 4.7 Conferir que a checagem de privilégio e a resolução de escopo seguem no mesmo ponto da sequência
+- [x] 4.1 Criar `internal/discovery` com as opções da execução, sem dependência de cobra
+- [x] 4.2 Mover a sequência de estágios do comando para a unidade, preservando ordem e regime de erro de cada um
+- [x] 4.3 Estágio que degrada reporta o aviso a quem chamou, em vez de escrever em stream
+- [x] 4.4 Devolver o `model.Result` montado e o que o relatório precisa além dele
+- [x] 4.5 Identificar cada estágio, deixando o ponto de medição pronto para a fase 8 sem medir nada agora
+- [x] 4.6 `internal/cli` reduzido a validar flags, montar opções, chamar e renderizar
+- [x] 4.7 Conferir que a checagem de privilégio e a resolução de escopo seguem no mesmo ponto da sequência
 
 ## 5. Verificação
 
-- [ ] 5.1 `go test ./...` verde sem Docker e sem rede, com os golden files intactos — nenhum arquivo `.golden` pode mudar
+- [x] 5.1 `go test ./...` verde sem Docker e sem rede, com os golden files intactos — nenhum arquivo `.golden` pode mudar
 - [ ] 5.2 Suíte de integração verde pacote a pacote, com atenção a veredito, contagem de órfãos e conteúdo dos artefatos
-- [ ] 5.3 Teste de que a execução programática produz o mesmo resultado do comando, com as mesmas opções
+- [x] 5.3 Teste de que a execução programática produz o mesmo resultado do comando, com as mesmas opções
 - [ ] 5.4 Conferir que a saída do binário é idêntica à de antes da change, nas fixtures cobertas
 - [ ] 5.5 Rodar `golangci-lint run` e `--build-tags integration`, zerando os apontamentos
-- [ ] 5.6 Revisar densidade de comentário: a extração não pode multiplicar comentário de trânsito
-- [ ] 5.7 Rodar `openspec validate discovery-pipeline --strict` e corrigir o que apontar
+- [x] 5.6 Revisar densidade de comentário: a extração não pode multiplicar comentário de trânsito
+- [x] 5.7 Rodar `openspec validate discovery-pipeline --strict` e corrigir o que apontar
