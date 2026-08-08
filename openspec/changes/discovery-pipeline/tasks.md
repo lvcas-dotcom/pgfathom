@@ -1,16 +1,16 @@
 ## 1. Dono único da estimativa de linhas
 
-- [ ] 1.1 Mover a resolução de `reltuples` para `internal/model`, devolvendo o mapa de estimativas conhecidas por tabela
-- [ ] 1.2 `internal/stats` e `internal/validate` passam a consumir essa função, e suas cópias de `tableRows` deixam de existir
-- [ ] 1.3 Teste de que a sentinela de tabela nunca analisada não vira zero em nenhuma das duas camadas
+- [x] 1.1 Mover a resolução de `reltuples` para `internal/model`, devolvendo o mapa de estimativas conhecidas por tabela
+- [x] 1.2 `internal/stats` e `internal/validate` passam a consumir essa função, e suas cópias de `tableRows` deixam de existir
+- [x] 1.3 Teste de que a sentinela de tabela nunca analisada não vira zero em nenhuma das duas camadas
 
 ## 2. Helpers de teste com um dono
 
-- [ ] 2.1 Mover para `internal/testutil` a lista única de valores plantados pelas fixtures
-- [ ] 2.2 Criar o helper de varredura de vazamento que recebe textos nomeados e falha apontando o valor encontrado
-- [ ] 2.3 Criar o helper que verifica que as consultas de um arquivo só referenciam catálogo e visões de estatística, parametrizado pelas relações permitidas
-- [ ] 2.4 Substituir as quatro cópias de valores plantados e as três de verificação de consulta pelos helpers
-- [ ] 2.5 Conferir que a lista única cobre todos os valores que cada cópia conhecia, sem perder nenhum
+- [x] 2.1 Mover para `internal/testutil` a lista única de valores plantados pelas fixtures
+- [x] 2.2 Criar o helper de varredura de vazamento que recebe textos nomeados e falha apontando o valor encontrado
+- [x] 2.3 Criar o helper que verifica que as consultas de um arquivo só referenciam catálogo e visões de estatística, parametrizado pelas relações permitidas
+- [x] 2.4 Substituir as quatro cópias de valores plantados e as três de verificação de consulta pelos helpers
+- [x] 2.5 Conferir que a lista única cobre todos os valores que cada cópia conhecia, sem perder nenhum
 
 ## 3. Interface estreita nas camadas de I/O
 

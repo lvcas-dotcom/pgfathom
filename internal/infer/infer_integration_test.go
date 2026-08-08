@@ -5,7 +5,6 @@ package infer_test
 import (
 	"bytes"
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -17,14 +16,6 @@ import (
 	"github.com/lvcas-dotcom/pgfathom/internal/report"
 	"github.com/lvcas-dotcom/pgfathom/internal/testutil"
 )
-
-// plantedValues are what the fixture puts in user tables. None may reach an
-// output.
-var plantedValues = []string{
-	"529.318.470-11",
-	"Maria Aparecida Silva",
-	"Sao Bernardo do Campo",
-}
 
 func inferFromFixture(t *testing.T) (*infer.Result, *model.Result) {
 	t.Helper()
@@ -162,14 +153,8 @@ func TestDiscoverOutputLeaksNothing(t *testing.T) {
 		t.Fatalf("rendering JSON: %v", err)
 	}
 
-	for name, out := range map[string]string{
+	testutil.AssertNoLeak(t, map[string]string{
 		"terminal": terminal.String(),
 		"json":     jsonOut.String(),
-	} {
-		for _, planted := range plantedValues {
-			if strings.Contains(out, planted) {
-				t.Errorf("%s output leaked %q from a user table", name, planted)
-			}
-		}
-	}
+	})
 }

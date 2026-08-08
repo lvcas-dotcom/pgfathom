@@ -34,3 +34,27 @@ func TestEstimatedRowCountSeparatesUnknownFromEmpty(t *testing.T) {
 		})
 	}
 }
+
+// TestRowEstimatesOmitsTheUnknown pins the distinction the sentinel exists to
+// preserve: a table that was never ANALYZEd is absent from the map, never
+// present as zero. A layer that read it as zero would treat the table as empty
+// — a domain table to scoring, a table that fits the sample to validation.
+func TestRowEstimatesOmitsTheUnknown(t *testing.T) {
+	schemas := []model.Schema{{Name: "public", Tables: []model.Table{
+		{Schema: "public", Name: "analisada", Stats: model.TableStats{EstimatedRows: 4200}},
+		{Schema: "public", Name: "vazia", Stats: model.TableStats{EstimatedRows: 0}},
+		{Schema: "public", Name: "nunca_analisada", Stats: model.TableStats{EstimatedRows: model.RowsUnknown}},
+	}}}
+
+	got := model.RowEstimates(schemas)
+
+	if n, ok := got["public.analisada"]; !ok || n != 4200 {
+		t.Errorf("analisada = (%d, %v), want (4200, true)", n, ok)
+	}
+	if n, ok := got["public.vazia"]; !ok || n != 0 {
+		t.Errorf("vazia = (%d, %v), want (0, true): empty is a known count", n, ok)
+	}
+	if _, ok := got["public.nunca_analisada"]; ok {
+		t.Error("an unanalyzed table must be absent, not present as zero")
+	}
+}

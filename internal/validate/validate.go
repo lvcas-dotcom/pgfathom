@@ -124,7 +124,7 @@ type Result struct {
 // remaining results could not be trusted either.
 func Run(ctx context.Context, pool *db.Pool, schemas []model.Schema, candidates []model.Candidate, opts Options) (*Result, error) {
 	res := &Result{Candidates: make([]model.Candidate, len(candidates))}
-	rows := tableRows(schemas)
+	rows := model.RowEstimates(schemas)
 	timedOut := make([]bool, len(candidates))
 
 	g, ctx := errgroup.WithContext(ctx)
@@ -264,17 +264,3 @@ func nullFraction(v model.Validation) float64 {
 	return 1 - float64(v.NotNullRows)/float64(v.SampledRows)
 }
 
-// tableRows maps known row estimates. Never-ANALYZEd tables are absent: for
-// them the sampler falls back to a direct read and lets the ceiling guard the
-// cost, instead of guessing a fraction from a number it does not have.
-func tableRows(schemas []model.Schema) map[string]int64 {
-	out := make(map[string]int64)
-	for _, s := range schemas {
-		for _, t := range s.Tables {
-			if n, ok := t.Stats.EstimatedRowCount(); ok {
-				out[s.Name+"."+t.Name] = n
-			}
-		}
-	}
-	return out
-}
