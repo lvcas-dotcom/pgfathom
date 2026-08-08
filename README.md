@@ -31,8 +31,8 @@
 > **Pre-release. Under active development.**
 > The design is specified in [`docs/PGFATHOM.md`](docs/PGFATHOM.md) and implementation is
 > tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md). `pgfathom audit` and `pgfathom discover`
-> both run end to end today, verdicts included. Still missing before a release: the
-> reviewable `.sql` artifacts, and the benchmark corpus. Terminal output shown below is
+> both run end to end today, verdicts and reviewable `.sql` artifacts included. Still
+> missing before a release: the benchmark corpus. Terminal output shown below is
 > the target design, not a recording. Recovery-rate benchmarks will be published here once
 > the tool runs against the reference corpus — no numbers are claimed until then.
 
