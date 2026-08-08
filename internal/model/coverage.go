@@ -37,6 +37,23 @@ type Coverage struct {
 	// TablesUnsupported lists tables whose shape this version cannot analyze.
 	TablesUnsupported []SkippedTable `json:"tables_unsupported,omitempty"`
 
+	// SchemasTotal counts the schemas visible to the connected role;
+	// SchemasAnalyzed, how many of them were in scope.
+	SchemasTotal    int `json:"schemas_total"`
+	SchemasAnalyzed int `json:"schemas_analyzed"`
+
+	// SchemasNotAnalyzed lists schemas that exist and were never asked for. A
+	// report about public that never mentions the other eleven schemas is
+	// accurate and still misleading, which is the exact failure the rule against
+	// reporting silence exists to prevent.
+	SchemasNotAnalyzed []string `json:"schemas_not_analyzed,omitempty"`
+
+	// SchemasExcluded lists schemas dropped by a user-supplied pattern. Kept
+	// apart from the above because asking for something to be skipped and never
+	// asking for it at all are different facts, and merging them would claim an
+	// intent nobody expressed.
+	SchemasExcluded []string `json:"schemas_excluded,omitempty"`
+
 	CandidatesFound     int `json:"candidates_found"`
 	CandidatesValidated int `json:"candidates_validated"`
 	CandidatesTimedOut  int `json:"candidates_timed_out"`
@@ -62,9 +79,13 @@ type Coverage struct {
 
 // Complete reports whether every table in scope was analyzed and every
 // candidate resolved.
+//
+// A schema left out of scope disqualifies completeness too: the only run
+// entitled to claim it looked at everything is the one that did.
 func (c Coverage) Complete() bool {
 	return c.TablesAnalyzed == c.TablesTotal &&
 		len(c.TablesNoPrivilege) == 0 &&
+		len(c.SchemasNotAnalyzed) == 0 &&
 		c.CandidatesTimedOut == 0
 }
 

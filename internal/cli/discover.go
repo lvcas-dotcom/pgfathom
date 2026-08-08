@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -85,11 +86,19 @@ func validationStage(full bool, sampleRows int64, sampled bool) string {
 type connectionOptions struct {
 	dsn              string
 	schemas          []string
+	allSchemas       bool
+	excludeSchemas   []string
 	exclude          []string
 	statementTimeout time.Duration
 	lockTimeout      time.Duration
 	idleTxTimeout    time.Duration
 	concurrency      int
+
+	// schemaFlagSet reports whether --schema was actually given. Comparing the
+	// value against the default instead would read "--schema public
+	// --all-schemas" as if the flag were absent, and that is precisely the
+	// ambiguous command line the exclusivity exists to refuse.
+	schemaFlagSet func() bool
 }
 
 func defaultConnectionOptions() connectionOptions {
@@ -100,6 +109,31 @@ func defaultConnectionOptions() connectionOptions {
 		idleTxTimeout:    db.DefaultIdleTxTimeout,
 		concurrency:      db.DefaultConcurrency,
 	}
+}
+
+// registerConnectionFlags registers the flags every catalog-reading command
+// shares.
+//
+// Scope belongs to the connection rather than to the command: an audit that only
+// ever sees public while discover sees the whole database would be an
+// inconsistency with nothing behind it, and two copies of this list is how that
+// starts.
+func registerConnectionFlags(cmd *cobra.Command, c *connectionOptions) {
+	f := cmd.Flags()
+	f.StringVar(&c.dsn, "dsn", "",
+		"connection string (visible in ps and shell history; prefer "+db.EnvDSN+")")
+	f.StringSliceVar(&c.schemas, "schema", c.schemas, "schemas to analyze")
+	f.BoolVar(&c.allSchemas, "all-schemas", false,
+		"analyze every non-system schema the role can access; cannot be combined with --schema")
+	f.StringSliceVar(&c.excludeSchemas, "exclude-schema", nil,
+		"glob patterns of schemas to drop from scope")
+	f.StringSliceVar(&c.exclude, "exclude", nil, "glob patterns of tables to skip")
+	f.DurationVar(&c.statementTimeout, "timeout", c.statementTimeout, "statement timeout per query")
+	f.DurationVar(&c.lockTimeout, "lock-timeout", c.lockTimeout, "lock timeout per query")
+	f.DurationVar(&c.idleTxTimeout, "idle-tx-timeout", c.idleTxTimeout, "idle transaction timeout")
+	f.IntVar(&c.concurrency, "concurrency", c.concurrency, "maximum simultaneous queries")
+
+	c.schemaFlagSet = func() bool { return f.Changed("schema") }
 }
 
 func newDiscoverCommand(streams *Streams) *cobra.Command {
@@ -131,17 +165,9 @@ what the data confirms, and the orphan queries for what it contradicts.`,
 		},
 	}
 
-	f := cmd.Flags()
-	c := &opts.connection
-	f.StringVar(&c.dsn, "dsn", "",
-		"connection string (visible in ps and shell history; prefer "+db.EnvDSN+")")
-	f.StringSliceVar(&c.schemas, "schema", c.schemas, "schemas to analyze")
-	f.StringSliceVar(&c.exclude, "exclude", nil, "glob patterns of tables to skip")
-	f.DurationVar(&c.statementTimeout, "timeout", c.statementTimeout, "statement timeout per query")
-	f.DurationVar(&c.lockTimeout, "lock-timeout", c.lockTimeout, "lock timeout per query")
-	f.DurationVar(&c.idleTxTimeout, "idle-tx-timeout", c.idleTxTimeout, "idle transaction timeout")
-	f.IntVar(&c.concurrency, "concurrency", c.concurrency, "maximum simultaneous queries")
+	registerConnectionFlags(cmd, &opts.connection)
 
+	f := cmd.Flags()
 	f.StringVar(&opts.profile, "profile", opts.profile,
 		"naming profile: a built-in name or a path to a TOML file")
 	f.Float64Var(&opts.minScore, "min-score", opts.minScore,
@@ -182,13 +208,13 @@ func runDiscover(ctx context.Context, streams *Streams, opts *discoverOptions) e
 
 	warn := func(msg string) { _, _ = fmt.Fprintln(streams.Err, "warning: "+msg) }
 
-	pool, schemas, err := connect(ctx, opts.connection, warn)
+	pool, scope, err := connect(ctx, opts.connection, warn)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
 
-	cat, err := catalog.Read(ctx, pool, catalog.Options{Schemas: schemas, Exclude: opts.connection.exclude})
+	cat, err := catalog.Read(ctx, pool, catalog.Options{Scope: scope, Exclude: opts.connection.exclude})
 	if err != nil {
 		return err
 	}
@@ -322,8 +348,17 @@ func observations(res *infer.Result) []model.Finding {
 	return out
 }
 
-// connect resolves credentials, opens the pool and warns about write privileges.
-func connect(ctx context.Context, opts connectionOptions, warn func(string)) (*db.Pool, []string, error) {
+// connect resolves credentials, opens the pool, resolves the schema scope and
+// warns about write privileges.
+func connect(ctx context.Context, opts connectionOptions, warn func(string)) (*db.Pool, *catalog.Scope, error) {
+	// Checked before the connection, because no precedence between these two is
+	// defensible: either answer analyzes a set the command line does not appear
+	// to ask for.
+	if opts.allSchemas && opts.schemaFlagSet != nil && opts.schemaFlagSet() {
+		return nil, nil, UsageError(errors.New(
+			"--schema and --all-schemas are mutually exclusive: pass an explicit list or the whole database, not both"))
+	}
+
 	dsn, err := db.ResolveDSN(opts.dsn, warn)
 	if err != nil {
 		return nil, nil, err
@@ -340,16 +375,27 @@ func connect(ctx context.Context, opts connectionOptions, warn func(string)) (*d
 		return nil, nil, err
 	}
 
-	schemas := catalog.SortedSchemas(opts.schemas)
+	scope, err := catalog.ResolveScope(ctx, pool, catalog.ScopeOptions{
+		Schemas:        opts.schemas,
+		All:            opts.allSchemas,
+		ExcludeSchemas: opts.excludeSchemas,
+	})
+	if err != nil {
+		pool.Close()
+		if errors.Is(err, catalog.ErrEmptyScope) {
+			return nil, nil, UsageError(err)
+		}
+		return nil, nil, err
+	}
 
 	// A failure here means the role cannot see the privilege catalog, which is
 	// not a reason to stop.
-	if writable, err := pool.HasWritePrivileges(ctx, schemas); err != nil {
+	if writable, err := pool.HasWritePrivileges(ctx, scope.Schemas); err != nil {
 		warn("could not verify privileges: " + err.Error())
 	} else if writable {
 		warn("the connected role can write to tables in scope; " +
 			"a dedicated read-only role is recommended")
 	}
 
-	return pool, schemas, nil
+	return pool, scope, nil
 }
