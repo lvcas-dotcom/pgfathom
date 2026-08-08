@@ -108,7 +108,7 @@ type Result struct {
 // come in as an argument, nothing touches a database, and the same inputs
 // always produce the same result.
 func Evaluate(schemas []model.Schema, candidates []model.Candidate, st *Stats, opts Options) *Result {
-	rows := tableRows(schemas)
+	rows := model.RowEstimates(schemas)
 	res := &Result{Checked: len(candidates)}
 
 	for _, c := range candidates {
@@ -137,14 +137,14 @@ const (
 	outcomeNoStats
 )
 
-func evaluateOne(c model.Candidate, rows map[string]rowEstimate, st *Stats, rejectFactor float64) (model.Candidate, outcome) {
+func evaluateOne(c model.Candidate, rows map[string]int64, st *Stats, rejectFactor float64) (model.Candidate, outcome) {
 	child, childOK := st.columns[c.Child]
 	parentRows, parentOK := rows[c.Parent.TableRef()]
 	childRows, childRowsOK := rows[c.Child.TableRef()]
 
 	distinct, distinctOK := int64(0), false
 	if childOK && childRowsOK {
-		distinct, distinctOK = child.estimates.EstimatedDistinct(childRows.count)
+		distinct, distinctOK = child.estimates.EstimatedDistinct(childRows)
 	}
 
 	// The cardinality check needs both ends of the arithmetic. Without them the
@@ -159,8 +159,8 @@ func evaluateOne(c model.Candidate, rows map[string]rowEstimate, st *Stats, reje
 		return c, outcomeNoStats
 	}
 
-	if distinct > parentRows.count {
-		if float64(distinct) > rejectFactor*float64(parentRows.count) {
+	if distinct > parentRows {
+		if float64(distinct) > rejectFactor*float64(parentRows) {
 			c.Signals = append(c.Signals, model.Signal{
 				Kind:   model.SigCardViolation,
 				Weight: penaltyCardViolation,
@@ -170,7 +170,7 @@ func evaluateOne(c model.Candidate, rows map[string]rowEstimate, st *Stats, reje
 			c.Verdict = model.VerdictRejected
 			c.Reason = fmt.Sprintf(
 				"estimated distinct values in %s (~%d) exceed estimated rows in %s (~%d) beyond tolerance; total containment is arithmetically impossible",
-				c.Child, distinct, c.Parent.TableRef(), parentRows.count)
+				c.Child, distinct, c.Parent.TableRef(), parentRows)
 			return c, outcomeRejected
 		}
 
@@ -208,20 +208,4 @@ func noStatsDetail(c model.Candidate, distinctOK, parentOK bool) string {
 	default:
 		return "no row estimate for " + c.Parent.TableRef()
 	}
-}
-
-// rowEstimate is a known row count. Tables whose reltuples is the never-ANALYZEd
-// sentinel are simply absent from the map, so unknown can never read as zero.
-type rowEstimate struct{ count int64 }
-
-func tableRows(schemas []model.Schema) map[string]rowEstimate {
-	out := make(map[string]rowEstimate)
-	for _, s := range schemas {
-		for _, t := range s.Tables {
-			if n, ok := t.Stats.EstimatedRowCount(); ok {
-				out[s.Name+"."+t.Name] = rowEstimate{count: n}
-			}
-		}
-	}
-	return out
 }

@@ -15,14 +15,22 @@ import (
 // or a moved file into a failure here, in a test that needs no container, one
 // second into the run — instead of thirty seconds in, spread across four
 // packages, after Docker has already started pulling images.
+//
+// A fixture added without its line here fails TestNoOrphanFixtures, which is
+// the direction that costs nothing: it says so instead of going quiet. The
+// list of values those fixtures plant lives in PlantedValues and has the
+// opposite failure mode, which is why that one is not duplicated at all.
 var knownFixtures = []string{
 	"clean_schema",
 	"inferable",
 	"no_constraints",
 	"not_valid_constraints",
 	"restricted_privileges",
+	"stats_prefilter",
 	"unindexed_fks",
 	"unsupported_shapes",
+	"usage_evidence",
+	"validation",
 }
 
 func TestEveryKnownFixtureResolves(t *testing.T) {

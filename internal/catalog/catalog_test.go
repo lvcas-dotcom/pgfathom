@@ -2,18 +2,13 @@ package catalog
 
 import (
 	"errors"
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"os"
-	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/lvcas-dotcom/pgfathom/internal/model"
+	"github.com/lvcas-dotcom/pgfathom/internal/testutil"
 )
 
 func TestMatchesAny(t *testing.T) {
@@ -354,73 +349,14 @@ func TestCoverageIsIncompleteWithASchemaLeftOut(t *testing.T) {
 	}
 }
 
-// userRelation matches a FROM or JOIN against anything outside the system
-// catalogs. It is deliberately blunt: the point is to fail loudly if this layer
-// ever grows a read of user data, which is a boundary the whole no-leak claim
-// for this phase rests on.
-var userRelation = regexp.MustCompile(`(?is)\b(from|join)\s+(?:only\s+)?([a-z_][a-z0-9_.]*)`)
-
-var allowedRelations = map[string]bool{
-	"pg_class": true, "pg_namespace": true, "pg_attribute": true, "pg_type": true,
-	"pg_attrdef": true, "pg_constraint": true, "pg_index": true, "pg_inherits": true,
-	"pg_stat_user_tables": true, "pg_stat_database": true,
-	"unnest": true, "lateral": true,
-}
-
 func TestQueriesTouchOnlyTheCatalog(t *testing.T) {
-	for name, sql := range queryLiterals(t, "queries.go") {
-		for _, m := range userRelation.FindAllStringSubmatch(sql, -1) {
-			relation := strings.ToLower(m[2])
-			if allowedRelations[relation] {
-				continue
-			}
-			t.Errorf("%s reads %q: the catalog layer must touch only system catalogs "+
-				"and statistics views, because reading data starts in a later phase",
-				name, relation)
-		}
-	}
-}
-
-// queryLiterals returns the SQL string constants, by name. Scanning the raw
-// file would match the surrounding prose instead of the queries.
-func queryLiterals(t *testing.T, path string) map[string]string {
-	t.Helper()
-
-	src, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("reading %s: %v", path, err)
+	allowed := map[string]bool{
+		"pg_class": true, "pg_namespace": true, "pg_attribute": true, "pg_type": true,
+		"pg_attrdef": true, "pg_constraint": true, "pg_index": true, "pg_inherits": true,
+		"pg_stat_user_tables": true, "pg_stat_database": true,
+		"unnest": true, "lateral": true,
 	}
 
-	file, err := parser.ParseFile(token.NewFileSet(), path, src, 0)
-	if err != nil {
-		t.Fatalf("parsing %s: %v", path, err)
-	}
-
-	out := make(map[string]string)
-	ast.Inspect(file, func(n ast.Node) bool {
-		spec, ok := n.(*ast.ValueSpec)
-		if !ok {
-			return true
-		}
-		for i, name := range spec.Names {
-			if i >= len(spec.Values) {
-				continue
-			}
-			lit, ok := spec.Values[i].(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				continue
-			}
-			value, err := strconv.Unquote(lit.Value)
-			if err != nil {
-				t.Fatalf("unquoting %s: %v", name.Name, err)
-			}
-			out[name.Name] = value
-		}
-		return true
-	})
-
-	if len(out) == 0 {
-		t.Fatalf("no SQL constants found in %s; the check would pass vacuously", path)
-	}
-	return out
+	testutil.AssertCatalogOnly(t, "queries.go", allowed,
+		"the catalog layer must touch only system catalogs and statistics views, because reading data starts in a later phase")
 }

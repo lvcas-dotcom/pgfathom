@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/lvcas-dotcom/pgfathom/internal/catalog"
 	"github.com/lvcas-dotcom/pgfathom/internal/db"
 	"github.com/lvcas-dotcom/pgfathom/internal/model"
@@ -56,16 +58,46 @@ func findTable(t *testing.T, res *catalog.Result, name string) model.Table {
 
 // TestSessionIsReadOnly proves the guarantee by behaviour rather than by
 // inspecting the setting: whatever the pool hands out, a write must fail.
+//
+// The result has to be drained before the error is trusted. pgx defers a
+// server-side failure to the row iteration, so reading only what Query returns
+// finds nil and reports a write that never happened — and leaves the
+// connection checked out, which then blocks Close for as long as the test
+// binary is willing to wait.
 func TestSessionIsReadOnly(t *testing.T) {
 	pool, ctx := open(t, "clean_schema")
 
-	_, err := pool.Query(ctx, "INSERT INTO municipio (id, nome) VALUES (999, 'x')")
+	err := drain(pool.Query(ctx, "INSERT INTO municipio (id, nome) VALUES (999, 'x')"))
 	if err == nil {
 		t.Fatal("a write succeeded on a read-only session")
 	}
 	if !strings.Contains(strings.ToLower(err.Error()), "read-only") {
 		t.Errorf("write failed with %v, want a read-only transaction error", err)
 	}
+
+	// The row is not there, which is the claim that matters: the statement was
+	// refused rather than merely reported as refused.
+	var count int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM municipio WHERE id = 999").Scan(&count); err != nil {
+		t.Fatalf("counting after the refused write: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("the refused INSERT left %d rows behind", count)
+	}
+}
+
+// drain consumes a result set so a deferred server error surfaces and the
+// connection returns to the pool. A caller that skips it gets a nil error and
+// a pool that will not close.
+func drain(rows pgx.Rows, err error) error {
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+	}
+	return rows.Err()
 }
 
 func TestApplicationNameIsAnnounced(t *testing.T) {
@@ -101,7 +133,7 @@ func TestCancellationEndsTheQuery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if _, err := pool.Query(ctx, "SELECT 1"); err == nil {
+	if err := drain(pool.Query(ctx, "SELECT 1")); err == nil {
 		t.Fatal("a query ran on a cancelled context")
 	}
 }

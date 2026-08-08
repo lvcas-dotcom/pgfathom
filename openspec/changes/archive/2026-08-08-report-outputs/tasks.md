@@ -45,8 +45,8 @@
 - [x] 5.4 Teste de contrato do JSON comparando o conjunto de caminhos de chave contra um golden
 - [x] 5.5 Teste unitário de truncamento de nome de constraint: orçamento em bytes, corte em fronteira de rune, sufixo, e dois nomes longos que não colidem
 - [x] 5.6 Teste unitário de determinismo: gerar duas vezes a mesma entrada produz o mesmo conteúdo fora o timestamp
-- [ ] 5.7 Teste de integração que aplica o SQL gerado ao banco da fixture e confere que as constraints existem como `NOT VALID` — **escrito, não executado: sem Docker no ambiente de desenvolvimento**
-- [ ] 5.8 Estender a varredura de vazamento ponta a ponta ao conteúdo dos artefatos gerados, em todas as fixtures — **escrito, não executado: sem Docker**
+- [x] 5.7 Teste de integração que aplica o SQL gerado ao banco da fixture e confere que as constraints existem como `NOT VALID`
+- [x] 5.8 Estender a varredura de vazamento ponta a ponta ao conteúdo dos artefatos gerados, em todas as fixtures
 - [x] 5.9 Confirmar formatação dos arquivos alterados e rodar `golangci-lint run --build-tags integration` zerando os apontamentos
 - [x] 5.10 Confirmar que `go test ./...` segue sem Docker e sem rede
 - [x] 5.11 Rodar `openspec validate report-outputs --strict` e corrigir o que apontar

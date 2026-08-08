@@ -35,6 +35,23 @@ func (s TableStats) EstimatedRowCount() (int64, bool) {
 	return s.EstimatedRows, true
 }
 
+// RowEstimates maps schema.table to the planner's row count, for the tables
+// that have one. A table whose estimate is unknown is absent rather than zero,
+// so a lookup miss and an empty table can never be confused — the distinction
+// the sentinel exists to preserve, and the reason this resolution has one
+// owner instead of a copy in every layer that needs it.
+func RowEstimates(schemas []Schema) map[string]int64 {
+	out := make(map[string]int64)
+	for _, s := range schemas {
+		for _, t := range s.Tables {
+			if n, ok := t.Stats.EstimatedRowCount(); ok {
+				out[s.Name+"."+t.Name] = n
+			}
+		}
+	}
+	return out
+}
+
 // UsageCounters are the raw activity counters from pg_stat_user_tables.
 type UsageCounters struct {
 	SeqScans int64 `json:"seq_scans"`

@@ -200,14 +200,11 @@ func TestArtifactsNeverCarryUserData(t *testing.T) {
 
 			runCommand(t, append(tc.args, "--dsn", dsn, "--out", dir, "--log-level", "debug")...)
 
+			artifacts := make(map[string]string, len(tc.files))
 			for _, file := range tc.files {
-				content := readArtifact(t, dir, file)
-				for _, planted := range plantedValues {
-					if strings.Contains(content, planted) {
-						t.Errorf("%s leaked %q from a user table", file, planted)
-					}
-				}
+				artifacts[file] = readArtifact(t, dir, file)
 			}
+			testutil.AssertNoLeak(t, artifacts)
 		})
 	}
 }

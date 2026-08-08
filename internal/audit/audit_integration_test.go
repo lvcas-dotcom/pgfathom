@@ -17,20 +17,6 @@ import (
 	"github.com/lvcas-dotcom/pgfathom/internal/testutil"
 )
 
-// plantedValues are the recognizable strings the fixtures put in user tables.
-// They stand in for what a real target database holds — national ID numbers,
-// names, addresses — and none of them may ever reach an output.
-var plantedValues = []string{
-	"529.318.470-11",
-	"145.892.663-04",
-	"Maria Aparecida Silva",
-	"Joao Carlos Pereira",
-	"Rua das Acacias 42",
-	"Construtora Horizonte LTDA",
-	"CT-2019-0041",
-	"Sao Bernardo do Campo",
-}
-
 func run(t *testing.T, fixture string) *model.Result {
 	t.Helper()
 
@@ -165,16 +151,10 @@ func TestNoPlantedValueEscapes(t *testing.T) {
 				t.Fatalf("rendering JSON: %v", err)
 			}
 
-			for name, out := range map[string]string{
+			testutil.AssertNoLeak(t, map[string]string{
 				"terminal": terminal.String(),
 				"json":     jsonOut.String(),
-			} {
-				for _, planted := range plantedValues {
-					if strings.Contains(out, planted) {
-						t.Errorf("%s output leaked %q from a user table", name, planted)
-					}
-				}
-			}
+			})
 		})
 	}
 }

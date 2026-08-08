@@ -4,3 +4,15 @@
 # differ by an invisible trailing \r, and the failure reads as two identical
 # lines that refuse to match.
 *.golden text eol=lf
+
+# The repository stores LF, but a Windows checkout under the default
+# core.autocrlf=true writes CRLF into the working tree, and golangci-lint then
+# reports files as unformatted against a diff no editor will show — a failure
+# that does not exist on CI and costs an afternoon to disbelieve. Pinning eol
+# makes the checkout match what the formatter expects.
+*.go   text eol=lf
+*.sql  text eol=lf
+*.toml text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
