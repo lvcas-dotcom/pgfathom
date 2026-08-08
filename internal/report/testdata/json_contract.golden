@@ -30,6 +30,10 @@ coverage.candidates_timed_out
 coverage.candidates_validated
 coverage.candidates_without_stats
 coverage.pg_stat_statements
+coverage.schemas_analyzed
+coverage.schemas_excluded
+coverage.schemas_not_analyzed
+coverage.schemas_total
 coverage.stats_prefilter
 coverage.stats_reset_at
 coverage.tables_analyzed

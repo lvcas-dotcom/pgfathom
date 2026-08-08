@@ -142,11 +142,24 @@ func TestDiscoverGolden(t *testing.T) {
 		StatsPrefilter: true, CandidatesStatsChecked: 9, CandidatesStatsRejected: 4, CandidatesWithoutStats: 1,
 	}
 
+	// The run everybody makes first: no flag at all, against a database that
+	// keeps most of itself outside public. What the report must not do is let
+	// the other schemas go unmentioned.
+	unscoped := model.Coverage{
+		TablesTotal: 4, TablesAnalyzed: 4,
+		SchemasTotal: 5, SchemasAnalyzed: 1,
+		SchemasNotAnalyzed: []string{"arquivo", "financeiro", "vendas"},
+		SchemasExcluded:    []string{"auditoria_2019"},
+		CandidatesFound:    9, CandidatesValidated: 3,
+	}
+
 	for name, view := range map[string]report.DiscoverView{
 		"discover_all_verdicts":    goldenView(goldenResult(model.MethodFull, full), stageFull),
 		"discover_sampled":         goldenView(goldenResult(model.MethodSampled, full), stageSampled),
 		"discover_partial_scope":   goldenView(goldenResult(model.MethodFull, partial), stageFull),
 		"discover_nothing_to_show": goldenView(emptyResult(full), stageFull),
+		"discover_schemas_left_out": goldenView(
+			goldenResult(model.MethodFull, unscoped), stageFull),
 	} {
 		t.Run(name, func(t *testing.T) {
 			testutil.Golden(t, name, renderDiscover(t, view))

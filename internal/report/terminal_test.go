@@ -57,6 +57,49 @@ func TestPartialScopeRefusesToLookClean(t *testing.T) {
 	}
 }
 
+// TestSchemaLeftOutIsCountedInItsOwnUnits covers the run where every table in
+// scope was analyzed and the scope itself was the omission. Counting that in
+// tables would report "0 were skipped" underneath a refusal to call the run
+// clean, which is the confusing answer sitting exactly where the honest one goes.
+func TestSchemaLeftOutIsCountedInItsOwnUnits(t *testing.T) {
+	out := render(t, result(model.Coverage{
+		TablesTotal: 4, TablesAnalyzed: 4,
+		SchemasTotal: 3, SchemasAnalyzed: 1,
+		SchemasNotAnalyzed: []string{"vendas", "financeiro"},
+	}))
+
+	if !strings.Contains(out, "not a clean bill of health") {
+		t.Errorf("a run that skipped a whole schema must not look clean:\n%s", out)
+	}
+	if !strings.Contains(out, "2 schemas were never looked at") {
+		t.Errorf("the omission must be counted in schemas, not tables:\n%s", out)
+	}
+	if strings.Contains(out, "0 tables were skipped") {
+		t.Errorf("no table was skipped, so nothing should claim otherwise:\n%s", out)
+	}
+	if !strings.Contains(out, "--all-schemas") {
+		t.Errorf("the coverage block must point at the flag that widens scope:\n%s", out)
+	}
+}
+
+// TestBothOmissionsAreNamed keeps one omission from masking the other.
+func TestBothOmissionsAreNamed(t *testing.T) {
+	out := render(t, result(model.Coverage{
+		TablesTotal: 12, TablesAnalyzed: 10,
+		TablesNoPrivilege:  []string{"public.folha", "public.prontuario"},
+		SchemasTotal:       3,
+		SchemasAnalyzed:    1,
+		SchemasNotAnalyzed: []string{"vendas"},
+	}))
+
+	if !strings.Contains(out, "2 tables were skipped") {
+		t.Errorf("skipped tables must still be counted:\n%s", out)
+	}
+	if !strings.Contains(out, "1 schemas were never looked at") {
+		t.Errorf("the schema left out must be counted alongside:\n%s", out)
+	}
+}
+
 func TestCoverageAlwaysPresent(t *testing.T) {
 	withFinding := result(
 		model.Coverage{TablesTotal: 3, TablesAnalyzed: 3},
@@ -111,13 +154,25 @@ func TestUnknownStatsResetIsFlagged(t *testing.T) {
 var ansi = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 
 func TestTerminalOutputCarriesNoANSI(t *testing.T) {
-	out := render(t, result(
-		model.Coverage{TablesTotal: 1, TablesAnalyzed: 1},
-		model.Finding{Kind: model.FindingFKWithoutIndex, Object: "public.a.a_fk"},
-	))
+	// The schema block is highlighted when colour is on, so it has to be in
+	// scope here: a piped run that leaks an escape sequence corrupts the file it
+	// was redirected into.
+	for name, coverage := range map[string]model.Coverage{
+		"single schema": {TablesTotal: 1, TablesAnalyzed: 1},
+		"schemas left out": {
+			TablesTotal: 1, TablesAnalyzed: 1,
+			SchemasTotal: 3, SchemasAnalyzed: 1,
+			SchemasNotAnalyzed: []string{"vendas"},
+			SchemasExcluded:    []string{"auditoria"},
+		},
+	} {
+		out := render(t, result(coverage,
+			model.Finding{Kind: model.FindingFKWithoutIndex, Object: "public.a.a_fk"},
+		))
 
-	if ansi.MatchString(out) {
-		t.Errorf("renderer must not emit ANSI: %q", out)
+		if ansi.MatchString(out) {
+			t.Errorf("%s: renderer must not emit ANSI: %q", name, out)
+		}
 	}
 }
 

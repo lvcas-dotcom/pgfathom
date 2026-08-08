@@ -10,7 +10,6 @@ import (
 	"github.com/lvcas-dotcom/pgfathom/internal/audit"
 	"github.com/lvcas-dotcom/pgfathom/internal/buildinfo"
 	"github.com/lvcas-dotcom/pgfathom/internal/catalog"
-	"github.com/lvcas-dotcom/pgfathom/internal/db"
 	"github.com/lvcas-dotcom/pgfathom/internal/model"
 	"github.com/lvcas-dotcom/pgfathom/internal/report"
 )
@@ -41,16 +40,9 @@ other.`,
 		},
 	}
 
+	registerConnectionFlags(cmd, &opts.connection)
+
 	f := cmd.Flags()
-	c := &opts.connection
-	f.StringVar(&c.dsn, "dsn", "",
-		"connection string (visible in ps and shell history; prefer "+db.EnvDSN+")")
-	f.StringSliceVar(&c.schemas, "schema", c.schemas, "schemas to analyze")
-	f.StringSliceVar(&c.exclude, "exclude", nil, "glob patterns of tables to skip")
-	f.DurationVar(&c.statementTimeout, "timeout", c.statementTimeout, "statement timeout per query")
-	f.DurationVar(&c.lockTimeout, "lock-timeout", c.lockTimeout, "lock timeout per query")
-	f.DurationVar(&c.idleTxTimeout, "idle-tx-timeout", c.idleTxTimeout, "idle transaction timeout")
-	f.IntVar(&c.concurrency, "concurrency", c.concurrency, "maximum simultaneous queries")
 	f.StringVar(&opts.format, "format", opts.format, "output format: table, json or sql")
 	f.StringVar(&opts.out, "out", "",
 		"directory for the reviewable .sql artifacts; required by --format sql")
@@ -67,13 +59,13 @@ func runAudit(ctx context.Context, streams *Streams, opts *auditOptions) error {
 
 	warn := func(msg string) { _, _ = fmt.Fprintln(streams.Err, "warning: "+msg) }
 
-	pool, schemas, err := connect(ctx, opts.connection, warn)
+	pool, scope, err := connect(ctx, opts.connection, warn)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
 
-	cat, err := catalog.Read(ctx, pool, catalog.Options{Schemas: schemas, Exclude: opts.connection.exclude})
+	cat, err := catalog.Read(ctx, pool, catalog.Options{Scope: scope, Exclude: opts.connection.exclude})
 	if err != nil {
 		return err
 	}
