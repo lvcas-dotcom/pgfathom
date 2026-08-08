@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lvcas-dotcom/pgfathom/internal/db"
 	"github.com/lvcas-dotcom/pgfathom/internal/model"
 )
 
@@ -78,7 +77,7 @@ type Scope struct {
 }
 
 // ResolveScope reads the visible schemas and resolves the scope against them.
-func ResolveScope(ctx context.Context, pool *db.Pool, opts ScopeOptions) (*Scope, error) {
+func ResolveScope(ctx context.Context, pool Querier, opts ScopeOptions) (*Scope, error) {
 	visible, err := readSchemas(ctx, pool)
 	if err != nil {
 		return nil, err
@@ -86,7 +85,7 @@ func ResolveScope(ctx context.Context, pool *db.Pool, opts ScopeOptions) (*Scope
 	return resolveScope(visible, opts)
 }
 
-func readSchemas(ctx context.Context, pool *db.Pool) ([]string, error) {
+func readSchemas(ctx context.Context, pool Querier) ([]string, error) {
 	rows, err := pool.Query(ctx, querySchemas)
 	if err != nil {
 		return nil, fmt.Errorf("reading schemas: %w", err)
@@ -169,7 +168,7 @@ type Result struct {
 }
 
 // Read loads the catalog for the schemas in scope.
-func Read(ctx context.Context, pool *db.Pool, opts Options) (*Result, error) {
+func Read(ctx context.Context, pool Querier, opts Options) (*Result, error) {
 	schemas := opts.schemas()
 
 	tables, coverage, err := readRelations(ctx, pool, schemas, opts.Exclude)
@@ -205,7 +204,7 @@ type tableKey struct{ schema, name string }
 
 func key(schema, name string) tableKey { return tableKey{schema, name} }
 
-func readRelations(ctx context.Context, pool *db.Pool, schemas, exclude []string) (map[tableKey]*model.Table, model.Coverage, error) {
+func readRelations(ctx context.Context, pool Querier, schemas, exclude []string) (map[tableKey]*model.Table, model.Coverage, error) {
 	var coverage model.Coverage
 
 	rows, err := pool.Query(ctx, queryRelations, schemas)
@@ -254,7 +253,7 @@ func readRelations(ctx context.Context, pool *db.Pool, schemas, exclude []string
 	return tables, coverage, nil
 }
 
-func readColumns(ctx context.Context, pool *db.Pool, schemas []string, tables map[tableKey]*model.Table) error {
+func readColumns(ctx context.Context, pool Querier, schemas []string, tables map[tableKey]*model.Table) error {
 	rows, err := pool.Query(ctx, queryColumns, schemas)
 	if err != nil {
 		return fmt.Errorf("reading columns: %w", err)
@@ -275,7 +274,7 @@ func readColumns(ctx context.Context, pool *db.Pool, schemas []string, tables ma
 	return wrap(rows.Err(), "reading columns")
 }
 
-func readConstraints(ctx context.Context, pool *db.Pool, schemas []string, tables map[tableKey]*model.Table) error {
+func readConstraints(ctx context.Context, pool Querier, schemas []string, tables map[tableKey]*model.Table) error {
 	rows, err := pool.Query(ctx, queryConstraints, schemas)
 	if err != nil {
 		return fmt.Errorf("reading constraints: %w", err)
@@ -318,7 +317,7 @@ func readConstraints(ctx context.Context, pool *db.Pool, schemas []string, table
 	return wrap(rows.Err(), "reading constraints")
 }
 
-func readIndexes(ctx context.Context, pool *db.Pool, schemas []string, tables map[tableKey]*model.Table) error {
+func readIndexes(ctx context.Context, pool Querier, schemas []string, tables map[tableKey]*model.Table) error {
 	rows, err := pool.Query(ctx, queryIndexes, schemas)
 	if err != nil {
 		return fmt.Errorf("reading indexes: %w", err)
@@ -338,7 +337,7 @@ func readIndexes(ctx context.Context, pool *db.Pool, schemas []string, tables ma
 	return wrap(rows.Err(), "reading indexes")
 }
 
-func readUsage(ctx context.Context, pool *db.Pool, schemas []string, tables map[tableKey]*model.Table, coverage *model.Coverage) error {
+func readUsage(ctx context.Context, pool Querier, schemas []string, tables map[tableKey]*model.Table, coverage *model.Coverage) error {
 	var resetAt *time.Time
 	if err := pool.QueryRow(ctx, queryStatsReset).Scan(&resetAt); err != nil {
 		return fmt.Errorf("reading statistics reset time: %w", err)

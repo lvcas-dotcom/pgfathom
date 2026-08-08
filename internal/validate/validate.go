@@ -122,7 +122,7 @@ type Result struct {
 // timeout or a missing privilege resolves that one candidate as unvalidated
 // and the run continues; any other database error aborts, because it means the
 // remaining results could not be trusted either.
-func Run(ctx context.Context, pool *db.Pool, schemas []model.Schema, candidates []model.Candidate, opts Options) (*Result, error) {
+func Run(ctx context.Context, pool Beginner, schemas []model.Schema, candidates []model.Candidate, opts Options) (*Result, error) {
 	res := &Result{Candidates: make([]model.Candidate, len(candidates))}
 	rows := model.RowEstimates(schemas)
 	timedOut := make([]bool, len(candidates))
@@ -155,7 +155,7 @@ func Run(ctx context.Context, pool *db.Pool, schemas []model.Schema, candidates 
 	return res, nil
 }
 
-func validateOne(ctx context.Context, pool *db.Pool, c model.Candidate, rows map[string]int64, opts Options) (out model.Candidate, timedOut bool, err error) {
+func validateOne(ctx context.Context, pool Beginner, c model.Candidate, rows map[string]int64, opts Options) (out model.Candidate, timedOut bool, err error) {
 	childRows, childKnown := rows[c.Child.TableRef()]
 	spec := sampleFor(childRows, childKnown, opts)
 
@@ -178,7 +178,7 @@ func validateOne(ctx context.Context, pool *db.Pool, c model.Candidate, rows map
 
 // runQuery executes one validation inside its own read-only transaction, so
 // the SET LOCAL ceiling dies with it.
-func runQuery(ctx context.Context, pool *db.Pool, query string, timeout time.Duration) (model.Validation, error) {
+func runQuery(ctx context.Context, pool Beginner, query string, timeout time.Duration) (model.Validation, error) {
 	var v model.Validation
 
 	tx, err := pool.Begin(ctx)
@@ -263,4 +263,3 @@ func nullFraction(v model.Validation) float64 {
 	}
 	return 1 - float64(v.NotNullRows)/float64(v.SampledRows)
 }
-

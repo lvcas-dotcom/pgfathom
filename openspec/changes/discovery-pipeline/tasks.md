@@ -14,9 +14,9 @@
 
 ## 3. Interface estreita nas camadas de I/O
 
-- [ ] 3.1 `internal/catalog` passa a receber a interface de consulta em vez do pool concreto
-- [ ] 3.2 `internal/validate` idem, preservando o acesso à transação que o `SET LOCAL` exige
-- [ ] 3.3 Conferir que `sqlprobe` e `stats` seguem inalterados e que as quatro interfaces são a mesma
+- [x] 3.1 `internal/catalog` passa a receber a interface de consulta em vez do pool concreto
+- [x] 3.2 `internal/validate` idem, preservando o acesso à transação que o `SET LOCAL` exige
+- [x] 3.3 Conferir que `sqlprobe` e `stats` seguem inalterados e que as quatro interfaces são a mesma
 
 ## 4. A execução como unidade
 
