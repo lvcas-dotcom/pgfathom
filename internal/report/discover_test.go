@@ -146,7 +146,7 @@ func TestEmptyResultIsExplicit(t *testing.T) {
 func TestDiscoverCoverageIsPresent(t *testing.T) {
 	out := renderDiscover(t, discoverView([]model.Candidate{candidate("cliente_id", "cliente", 0.75)}, nil, false))
 
-	if !strings.Contains(out, "4 tables · 4 analyzed") {
+	if !strings.Contains(out, "4 tables · 4 analyzed (100%)") {
 		t.Errorf("coverage must accompany every run:\n%s", out)
 	}
 }

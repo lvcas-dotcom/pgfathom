@@ -16,6 +16,23 @@ env:
   CGO_ENABLED: "0"
 
 jobs:
+  # O README promete que quem aprova rodar isto contra produção abre o go.mod
+  # primeiro. Um go.mod fora de tidy engana exatamente esse leitor: o driver
+  # aparece como dependência indireta, como se ninguém aqui o tivesse escolhido.
+  tidy:
+    name: go.mod
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          check-latest: true
+      - name: go mod tidy não deixa diff
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
   # Suíte unitária: sem Docker, sem rede, em todas as plataformas alvo.
   # Quem quiser contribuir um perfil de nomenclatura precisa passar só por aqui.
   test:

@@ -26,7 +26,7 @@
   reference suffix  _id  102 occurrences (22%)
 
   1 broken · 1 confirmed · 1 weak · 1 unvalidated · 0 discarded · 4.2s
-  4 tables · 4 analyzed
+  4 tables · 4 analyzed (100%)
   5 schemas · 1 analyzed
     3 not analyzed: arquivo, financeiro, vendas — pass --all-schemas to include them
     1 excluded by filter: auditoria_2019

@@ -9,7 +9,7 @@
   reference suffix  _id  102 occurrences (22%)
 
   0 broken · 0 confirmed · 0 weak · 0 unvalidated · 0 discarded · 4.2s
-  4 tables · 4 analyzed
+  4 tables · 4 analyzed (100%)
   stats prefilter off — no planner-statistics check was applied
   ! statistics reset time unknown — usage counters carry no meaning
 
