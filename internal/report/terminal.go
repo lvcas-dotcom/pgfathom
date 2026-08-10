@@ -143,7 +143,8 @@ func humanCount(n int64) string {
 // writeCoverage always runs. A clean report has to mean "I looked and it is
 // clean", never "I could not look".
 func writeCoverage(b *strings.Builder, e Emphasis, c model.Coverage) {
-	line := fmt.Sprintf("%d tables · %d analyzed", c.TablesTotal, c.TablesAnalyzed)
+	line := fmt.Sprintf("%d tables · %d analyzed (%.0f%%)",
+		c.TablesTotal, c.TablesAnalyzed, 100*c.AnalyzedShare())
 	if n := c.SkippedCount(); n > 0 {
 		line = e.Warn(line + fmt.Sprintf(" · %d skipped", n))
 	}
@@ -167,6 +168,12 @@ func writeCoverage(b *strings.Builder, e Emphasis, c model.Coverage) {
 		for _, r := range reasons {
 			writeSkipped(b, strings.ReplaceAll(r, "_", " "), byReason[model.UnsupportedReason(r)])
 		}
+	}
+
+	if c.MateriallyIncomplete() {
+		fmt.Fprintf(b, "  %s\n", e.Warn(fmt.Sprintf(
+			"! only %.0f%% of the table scope was analyzed — every conclusion in this "+
+				"report covers that fraction, not the schema", 100*c.AnalyzedShare())))
 	}
 
 	// The prefilter line distinguishes "I looked and dropped nothing" from "I

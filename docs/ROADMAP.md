@@ -134,11 +134,15 @@ Há também uma razão de método. A fase 8 mede recall no corpus de benchmark. 
 
 ---
 
-## Fase 8 — `benchmark-and-release`
+## Fase 8 — `composite-keys-and-benchmark`
 
 **Objetivo.** O número que sustenta o lançamento, e a distribuição.
 
-**Escopo.** Harness do corpus: carregar schema público, remover todas as FKs declaradas, rodar `discover`, medir recuperação e falsos positivos. Corpus com GitLab, Odoo, Discourse, Redmine e Mastodon, mais um dump real em português anonimizado. Tabela de resultados no README, por schema, com a versão da ferramenta e a decomposição entre nome e evidência de uso. `goreleaser` com binário multiplataforma, release no GitHub, imagem Docker e tap do Homebrew. Licença.
+**Escopo.** Chaves estrangeiras compostas, promovidas do "fora de escopo" original. Medição no banco municipal mostrou 86 tabelas de chave composta em 338 do escopo — **um quarto do banco** pulado com nota. É material demais para um MVP que se apresenta como ferramenta de banco legado, e a estrutura já existe: o modelo carrega chave de várias colunas, a cobertura registra o motivo, e a validação por anti-join generaliza para tupla sem mudança conceitual.
+
+Harness do corpus: carregar schema público, remover todas as FKs declaradas, rodar `discover`, medir recuperação e falsos positivos. Corpus com GitLab, Odoo, Discourse, Redmine e Mastodon, mais um dump real em português anonimizado. Tabela de resultados no README, por schema, com a versão da ferramenta e a decomposição entre nome e evidência de uso. `goreleaser` com binário multiplataforma, release no GitHub, imagem Docker e tap do Homebrew. Licença.
+
+**Por que as duas coisas na mesma fase.** O corpus existe para produzir um número defensável. Publicá-lo sabendo que um quarto de um schema alvo típico ficou fora tornaria a métrica enganosa por omissão — o recall pareceria melhor do que a cobertura real sustenta.
 
 **Por que é fase, e não tarefa de fim de semana.** A taxa de recuperação é a métrica principal do projeto e vai no README. Ela precisa ser reproduzível por qualquer pessoa, versionada junto com o código e medida por script, não por planilha.
 

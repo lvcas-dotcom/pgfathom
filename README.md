@@ -32,10 +32,11 @@
 > **Pre-release. Under active development.**
 > The design is specified in [`docs/PGFATHOM.md`](docs/PGFATHOM.md) and implementation is
 > tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md). `pgfathom audit` and `pgfathom discover`
-> both run end to end today, verdicts and reviewable `.sql` artifacts included. Still
-> missing before a release: the benchmark corpus. Terminal output shown below is
-> the target design, not a recording. Recovery-rate benchmarks will be published here once
-> the tool runs against the reference corpus — no numbers are claimed until then.
+> both run end to end today, verdicts and reviewable `.sql` artifacts included, and have
+> been exercised against real production schemas — see
+> [measurements](#first-measurements). Still missing before a release: composite keys, which
+> put a quarter of a typical target schema out of reach, and the public benchmark corpus.
+> Terminal output shown below is the target design, not a recording.
 
 ---
 
@@ -307,7 +308,7 @@ like from a schema that finally knows its own relationships.
 | 5 | Data validation · `pgfathom discover` | Done |
 | 6 | Join mining from views and functions | Done |
 | 7 | Terminal, JSON and SQL output | Done |
-| 8 | Benchmark corpus and release | Planned |
+| 8 | Composite keys, benchmark corpus and release | Planned |
 
 Full detail in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
@@ -322,14 +323,53 @@ Code generation is explicitly *not* on the roadmap.
 The headline metric is **recovery rate**: take a schema with complete foreign keys, drop
 every one of them, run `pgfathom`, and count how many come back.
 
-This runs against a public corpus — GitLab, Odoo, Discourse, Redmine, Mastodon — so anyone
-can reproduce it. Results will be published per schema, split into what name matching
-recovers alone versus what usage evidence adds on top.
+### First measurements
 
-Recall will settle well below 100%, and that is expected rather than a failure:
-relationships whose column names bear no resemblance to the target table are invisible to
-name matching by construction. That gap is precisely what join mining exists to close, and
-reporting the split is how you can see it working.
+Against real production schemas, nothing configured: shipped profile, detection on.
+
+| Schema | Tables | FKs | Profile alone | + detection | + join mining |
+|---|---:|---:|---:|---:|---:|
+| Municipal management system (pt-BR) | 784 | 985 | 0.5% | 79.0% | **79.7%** |
+| Tax system (pt-BR) | 31 | 18 | 22.2% | **72.2%** | 72.2% |
+| Django application (en) | 18 | 10 | 0.0% | **90.0%** | 90.0% |
+
+The first column is why naming detection exists. A shipped profile cannot know that one
+vendor writes `lote_idkey` and another writes `idkey_lote`; read off the declared keys, both
+fall out in a single pass. The Django row is the same problem from the other side — its
+tables carry an application prefix that belongs to no language.
+
+**Join mining contributes far less than expected**: seven extra relationships on the only
+schema that had views, and nothing on the other two. Fifty-three join predicates extracted
+from 128 views and 1,676 functions is a low yield, and whether that is the schemas or the
+extractor is an open question rather than a settled result. It is reported here because a
+feature that measured smaller than its argument should say so.
+
+These are private databases, so the numbers are reproducible by their owners rather than by
+you. A public corpus — GitLab, Odoo, Discourse, Redmine, Mastodon — is the next step, so
+anyone can check them.
+
+### What the remaining gap is
+
+Recall settles well below 100%, and that is expected rather than a failure. The misses are
+relationships whose column names bear no resemblance to the target:
+
+```
+atotramite.tptramite_idkey        → tramitetipo          abbreviated, reordered
+basecalculo.idkey_operador        → operadorbasecalculo  named for its role
+ato.atorevogacao_idkey            → ato                  named for its role
+```
+
+No naming heuristic reaches these, by construction.
+
+### Coverage is part of the metric
+
+On the municipal schema, 25% of the tables are out of reach because their primary keys are
+composite — a shape this version does not target. Every run says so, and says it as a
+proportion rather than a count, because "91 tables skipped" reads as minor until you notice
+it is a quarter of the database.
+
+A recall number quoted without that fraction would be misleading by omission, which is why
+composite keys and the benchmark corpus land in the same phase.
 
 The metric that has no tolerance is the other one: **zero confirmed false positives.** A
 missed relationship costs you a finding. A wrong one confirmed costs you the tool.

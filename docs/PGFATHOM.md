@@ -687,6 +687,8 @@ A taxa de recuperação no corpus de benchmark é publicada, por schema. É a m�
 
 A saída SQL é executável sem edição manual num banco de teste.
 
+Duas execuções consecutivas sobre o mesmo banco produzem saída idêntica byte a byte, descontado o timestamp. Ordenação instável quebra golden file, torna ilegível qualquer diff de relatório e impede o modo de CI de distinguir mudança real de ruído.
+
 Nenhum valor de dado do usuário aparece em qualquer saída, em qualquer formato, em qualquer cenário do corpus de teste.
 
 O bloco de cobertura aparece em toda execução.

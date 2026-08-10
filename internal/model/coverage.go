@@ -2,6 +2,10 @@ package model
 
 import "time"
 
+// materialCoverage is the analyzed share below which a run has to say that its
+// silence covers less than it appears to.
+const materialCoverage = 0.80
+
 // UnsupportedReason says why a table could not be analyzed.
 type UnsupportedReason string
 
@@ -87,6 +91,24 @@ func (c Coverage) Complete() bool {
 		len(c.TablesNoPrivilege) == 0 &&
 		len(c.SchemasNotAnalyzed) == 0 &&
 		c.CandidatesTimedOut == 0
+}
+
+// AnalyzedShare is the proportion of the table scope that was analyzed.
+func (c Coverage) AnalyzedShare() float64 {
+	if c.TablesTotal <= 0 {
+		return 0
+	}
+	return float64(c.TablesAnalyzed) / float64(c.TablesTotal)
+}
+
+// MateriallyIncomplete reports whether enough of the scope was skipped that
+// every conclusion needs reading against it.
+//
+// Absolute counts hide the shape of the problem: 91 tables skipped sounds minor
+// until it turns out to be a quarter of the schema, which is what a real
+// municipal database produced.
+func (c Coverage) MateriallyIncomplete() bool {
+	return c.TablesTotal > 0 && c.AnalyzedShare() < materialCoverage
 }
 
 // SkippedCount is how many tables did not make it into the analysis.

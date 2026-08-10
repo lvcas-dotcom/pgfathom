@@ -26,9 +26,10 @@
   reference suffix  _id  102 occurrences (22%)
 
   1 broken · 1 confirmed · 1 weak · 1 unvalidated · 0 discarded · 4.2s
-  12 tables · 9 analyzed · 3 skipped
+  12 tables · 9 analyzed (75%) · 3 skipped
     2 no SELECT privilege: public.folha, public.salario
     1 no primary key: public.evento
+  ! only 75% of the table scope was analyzed — every conclusion in this report covers that fraction, not the schema
   stats prefilter: 9 checked · 4 rejected · 1 without statistics
   ! statistics reset time unknown — usage counters carry no meaning
 

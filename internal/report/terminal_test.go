@@ -115,7 +115,7 @@ func TestCoverageAlwaysPresent(t *testing.T) {
 		"with findings": render(t, withFinding),
 		"without":       render(t, result(model.Coverage{TablesTotal: 3, TablesAnalyzed: 3})),
 	} {
-		if !strings.Contains(out, "3 tables · 3 analyzed") {
+		if !strings.Contains(out, "3 tables · 3 analyzed (100%)") {
 			t.Errorf("%s: coverage block missing:\n%s", name, out)
 		}
 	}
@@ -215,5 +215,34 @@ func TestHumanCountScales(t *testing.T) {
 
 	if !strings.Contains(out, "4.0M") {
 		t.Errorf("large counts should be abbreviated:\n%s", out)
+	}
+}
+
+// TestMateriallyIncompleteScopeIsFlagged covers a shape a real municipal
+// database produced: 91 tables skipped reads as minor until it turns out to be a
+// quarter of the schema.
+func TestMateriallyIncompleteScopeIsFlagged(t *testing.T) {
+	out := render(t, result(model.Coverage{
+		TablesTotal:       338,
+		TablesAnalyzed:    247,
+		TablesUnsupported: []model.SkippedTable{{Table: "public.x", Reason: model.ReasonCompositePK}},
+	}))
+
+	if !strings.Contains(out, "(73%)") {
+		t.Errorf("the analyzed share must be shown, not only the counts:\n%s", out)
+	}
+	if !strings.Contains(out, "covers that fraction") {
+		t.Errorf("a materially incomplete run must say what its conclusions cover:\n%s", out)
+	}
+}
+
+func TestCompleteScopeCarriesNoWarning(t *testing.T) {
+	out := render(t, result(model.Coverage{TablesTotal: 100, TablesAnalyzed: 100}))
+
+	if strings.Contains(out, "covers that fraction") {
+		t.Errorf("a complete run must not carry the partial-coverage warning:\n%s", out)
+	}
+	if !strings.Contains(out, "100 analyzed (100%)") {
+		t.Errorf("the share is shown either way:\n%s", out)
 	}
 }
