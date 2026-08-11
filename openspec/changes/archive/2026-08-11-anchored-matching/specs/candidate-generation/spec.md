@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Casamento de chave composta é total, ancorado e sem desempate
 
@@ -48,3 +48,11 @@ A regra anterior exigia derivação uniforme em todas as posições, sob o argum
 
 - **WHEN** todas as posições casam por nome mas uma delas tem tipo incompatível
 - **THEN** nenhum candidato é gerado
+
+## REMOVED Requirements
+
+### Requirement: Casamento de chave composta é total, uniforme e sem desempate
+
+**Reason**: A exigência de derivação uniforme em todas as posições foi escrita antes de existir corpus para medi-la. Medida contra o maior schema público disponível, recuperou zero de 53 chaves compostas: todas são discriminador mais referência, que a uniformidade classifica como coincidência e que é, na verdade, a forma canônica de chave composta em schema particionado ou multi-tenant.
+
+**Migration**: Substituída por "Casamento de chave composta é total, ancorado e sem desempate". O que muda é só o meio do intervalo: casamento todo prefixado continua valendo, casamento todo espelho continua exigindo alvo único, e o que passa a casar é o conjunto com pelo menos uma âncora e o resto em espelho. Todas as recusas — parcial, posição ambígua, tipo incompatível, assinatura compartilhada sem âncora — seguem valendo com o mesmo texto.
