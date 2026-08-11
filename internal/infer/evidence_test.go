@@ -165,3 +165,98 @@ func TestGenerationWithEvidenceIsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// TestCompositeJoinBecomesOneCandidate is the composite counterpart of the
+// unreachable case: read one equality at a time, each half of the key fails the
+// anchor and the relationship vanishes exactly where the evidence is strongest.
+func TestCompositeJoinBecomesOneCandidate(t *testing.T) {
+	nota := keyed("nota", []string{"empresa_id", "numero"})
+	// Neither child column resembles the target, so only the view can reach it.
+	remessa := tbl("remessa", col("org"), col("doc"))
+
+	res := generate(t, schema(nota, remessa), withEvidence(
+		model.JoinEvidence{
+			Left:   ref("remessa", "org"),
+			Right:  ref("nota", "empresa_id"),
+			Source: model.JoinFromView, Object: "public.vw_remessa",
+		},
+		model.JoinEvidence{
+			Left:   ref("remessa", "doc"),
+			Right:  ref("nota", "numero"),
+			Source: model.JoinFromView, Object: "public.vw_remessa",
+		},
+	))
+
+	c, found := find(res, "public.remessa.(org, doc)", "public.nota.(empresa_id, numero)")
+	if !found {
+		t.Fatalf("the composite join must produce one candidate; got %d survivors", len(res.Candidates))
+	}
+	if !c.HasSignal(model.SigJoinInView) || !c.HasSignal(model.SigCompositeArity) {
+		t.Errorf("the candidate must carry both the join and the arity: %v", c.Signals)
+	}
+
+	for _, other := range res.Candidates {
+		if other.Child.TableRef() == "public.remessa" && !other.Child.Composite() {
+			t.Errorf("half a key is not a hypothesis: %s → %s", other.Child, other.Parent)
+		}
+	}
+}
+
+func TestPartialCompositeJoinAnchorsNothing(t *testing.T) {
+	nota := keyed("nota", []string{"empresa_id", "numero"})
+	remessa := tbl("remessa", col("org"))
+
+	res := generate(t, schema(nota, remessa), withEvidence(model.JoinEvidence{
+		Left:   ref("remessa", "org"),
+		Right:  ref("nota", "empresa_id"),
+		Source: model.JoinFromView, Object: "public.vw_remessa",
+	}))
+
+	for _, c := range res.Candidates {
+		if c.Parent.TableRef() == "public.nota" {
+			t.Errorf("a join covering one of two key columns must anchor nothing: %s → %s", c.Child, c.Parent)
+		}
+	}
+}
+
+// TestCompositeEvidenceStrengthensTheNamedCandidate keeps one signal per
+// origin: the view proves what the name already suggested, it does not double it.
+func TestCompositeEvidenceStrengthensTheNamedCandidate(t *testing.T) {
+	nota := keyed("nota", []string{"empresa_id", "numero"})
+	item := keyed("item", []string{"empresa_id", "numero", "sequencia"})
+
+	byName := generate(t, schema(nota, item))
+	named, found := find(byName, "public.item.(empresa_id, numero)", "public.nota.(empresa_id, numero)")
+	if !found {
+		t.Fatal("the fixture is broken: the pair must be reachable by name")
+	}
+
+	res := generate(t, schema(nota, item), withEvidence(
+		model.JoinEvidence{
+			Left: ref("item", "empresa_id"), Right: ref("nota", "empresa_id"),
+			Source: model.JoinFromView, Object: "public.vw_item",
+		},
+		model.JoinEvidence{
+			Left: ref("item", "numero"), Right: ref("nota", "numero"),
+			Source: model.JoinFromView, Object: "public.vw_item",
+		},
+	))
+
+	c, found := find(res, "public.item.(empresa_id, numero)", "public.nota.(empresa_id, numero)")
+	if !found {
+		t.Fatal("the candidate disappeared once evidence was added")
+	}
+	if c.MetaScore <= named.MetaScore {
+		t.Errorf("score = %.2f with evidence and %.2f without: usage has to add", c.MetaScore, named.MetaScore)
+	}
+
+	seen := 0
+	for _, s := range c.Signals {
+		if s.Kind == model.SigJoinInView {
+			seen++
+		}
+	}
+	if seen != 1 {
+		t.Errorf("the view signal appears %d times; one object proving a join is one fact", seen)
+	}
+}

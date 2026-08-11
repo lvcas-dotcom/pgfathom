@@ -1,0 +1,24 @@
+-- pgfathom v0.7.0-test — relationships the data confirms
+-- generated 2026-08-07T12:00:00Z
+-- server     PostgreSQL 16.2
+-- validation full — every row was examined
+--
+-- REVIEW BEFORE RUNNING. Every statement below was written from an
+-- inference about your schema. This tool has never altered your database
+-- and does not intend to; you are the one who decides what runs.
+
+-- public.item.(empresa_id, nota_numero) → public.nota.(empresa_id, numero)
+-- containment 100.0% of 1284000 rows over 48120 distinct values, no orphans
+-- 317 rows have a NULL in part of the key and a value in the rest. MATCH
+-- SIMPLE — the default, and what the DDL below uses — exempts them, so the
+-- constraint will never check those rows.
+ALTER TABLE "public"."item"
+    ADD CONSTRAINT "fk_item_empresa_id_nota_numero"
+    FOREIGN KEY ("empresa_id", "nota_numero") REFERENCES "public"."nota" ("empresa_id", "numero")
+    NOT VALID;
+
+-- Validate separately. The statement above scanned nothing and held the
+-- stronger lock for an instant; this one scans the table under a lock that
+-- blocks neither reads nor writes. Run it in a window of your choosing.
+-- ALTER TABLE "public"."item" VALIDATE CONSTRAINT "fk_item_empresa_id_nota_numero";
+

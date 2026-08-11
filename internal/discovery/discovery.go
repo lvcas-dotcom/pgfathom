@@ -182,10 +182,14 @@ func observations(res *infer.Result) []model.Finding {
 	}
 
 	for _, s := range res.Skipped {
+		detail := string(s.Reason) + " (" + s.Target + ")"
+		if s.Detail != "" {
+			detail += ": " + s.Detail
+		}
 		out = append(out, model.Finding{
 			Kind:   model.FindingUnsupportedTarget,
 			Object: s.Child.String(),
-			Detail: string(s.Reason) + " (" + s.Target + ")",
+			Detail: detail,
 		})
 	}
 

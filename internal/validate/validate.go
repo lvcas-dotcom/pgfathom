@@ -195,7 +195,7 @@ func runQuery(ctx context.Context, pool Beginner, query string, timeout time.Dur
 
 	start := time.Now()
 	err = tx.QueryRow(ctx, query).Scan(
-		&v.SampledRows, &v.DistinctVals, &v.NotNullRows,
+		&v.SampledRows, &v.PartialNullRows, &v.DistinctVals, &v.NotNullRows,
 		&v.OrphanVals, &v.OrphanRows, &v.MaxRowsPerValue,
 	)
 	v.Duration = time.Since(start)

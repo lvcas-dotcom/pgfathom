@@ -34,8 +34,9 @@
 > tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md). `pgfathom audit` and `pgfathom discover`
 > both run end to end today, verdicts and reviewable `.sql` artifacts included, and have
 > been exercised against real production schemas — see
-> [measurements](#first-measurements). Still missing before a release: composite keys, which
-> put a quarter of a typical target schema out of reach, and the public benchmark corpus.
+> [measurements](#first-measurements). Composite keys are supported as of the current
+> branch; still missing before a release is the public benchmark corpus, so the numbers
+> below predate composite support and have not yet been remeasured with it.
 > Terminal output shown below is the target design, not a recording.
 
 ---
@@ -363,13 +364,17 @@ No naming heuristic reaches these, by construction.
 
 ### Coverage is part of the metric
 
-On the municipal schema, 25% of the tables are out of reach because their primary keys are
-composite — a shape this version does not target. Every run says so, and says it as a
-proportion rather than a count, because "91 tables skipped" reads as minor until you notice
-it is a quarter of the database.
+The numbers above were measured while a quarter of the municipal schema — 86 tables of 338,
+all keyed on more than one column — was out of reach. That fraction is why composite keys
+and the benchmark corpus land in the same phase: a recall quoted without it would be
+misleading by omission, and quoting it against a tool that has since grown would be
+misleading in the other direction. **The table above will be remeasured with composite
+support before any of it is published as a release number.**
 
-A recall number quoted without that fraction would be misleading by omission, which is why
-composite keys and the benchmark corpus land in the same phase.
+What does not change is that every run states its own coverage, as a proportion rather than
+a count: "91 tables skipped" reads as minor until you notice it is a quarter of the
+database. The shapes still out of reach — no primary key at all, partitioned parents, table
+inheritance — are named in every report.
 
 The metric that has no tolerance is the other one: **zero confirmed false positives.** A
 missed relationship costs you a finding. A wrong one confirmed costs you the tool.

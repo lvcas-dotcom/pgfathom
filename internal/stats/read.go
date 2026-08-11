@@ -136,7 +136,7 @@ func involvedColumns(candidates []model.Candidate) []model.ColumnRef {
 	seen := make(map[model.ColumnRef]bool)
 	var out []model.ColumnRef
 	for _, c := range candidates {
-		for _, ref := range []model.ColumnRef{c.Child, c.Parent} {
+		for _, ref := range append(c.Child.ColumnRefs(), c.Parent.ColumnRefs()...) {
 			if !seen[ref] {
 				seen[ref] = true
 				out = append(out, ref)

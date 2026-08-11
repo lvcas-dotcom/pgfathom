@@ -16,7 +16,7 @@
 -- 1284 orphan rows over 12 distinct values; containment 99.8% of 812400 rows examined
 
 -- Step 1 — look at what is orphaned.
-SELECT c."pedido_id" AS orphan_value, count(*) AS orphan_rows
+SELECT c."pedido_id", count(*) AS orphan_rows
 FROM "public"."nota_fiscal" AS c
 WHERE c."pedido_id" IS NOT NULL
   AND NOT EXISTS (SELECT 1 FROM "public"."pedido" AS p WHERE p."id" = c."pedido_id")

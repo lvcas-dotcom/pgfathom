@@ -46,8 +46,8 @@ func TestUnsupportedReason(t *testing.T) {
 	}{
 		{"single-column key is supported",
 			model.Table{PrimaryKey: []string{"id"}}, ""},
-		{"composite key",
-			model.Table{PrimaryKey: []string{"a", "b"}}, model.ReasonCompositePK},
+		{"composite key is supported",
+			model.Table{PrimaryKey: []string{"a", "b"}}, ""},
 		{"no key",
 			model.Table{}, model.ReasonNoPrimaryKey},
 		{"partitioned outranks the key check",
@@ -80,8 +80,9 @@ func TestClassifyUnsupportedKeepsCoverageBalanced(t *testing.T) {
 	coverage := model.Coverage{TablesTotal: len(tables)}
 	classifyUnsupported(tables, &coverage)
 
-	if coverage.TablesAnalyzed != 1 {
-		t.Errorf("analyzed = %d, want 1", coverage.TablesAnalyzed)
+	// The composite one counts as analyzed: its shape is in scope now.
+	if coverage.TablesAnalyzed != 2 {
+		t.Errorf("analyzed = %d, want 2", coverage.TablesAnalyzed)
 	}
 	if got := coverage.TablesAnalyzed + coverage.SkippedCount(); got != coverage.TablesTotal {
 		t.Errorf("analyzed + skipped = %d, want %d", got, coverage.TablesTotal)

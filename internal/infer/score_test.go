@@ -15,7 +15,7 @@ func scoreOf(t *testing.T, parent model.Table, child model.Table, column string)
 	res := infer.Generate(schema(parent, child), infer.Options{Profile: ptBR(t), MinScore: 0.001})
 
 	for _, c := range append(res.Candidates, res.Discarded...) {
-		if c.Child.Column == column {
+		if c.Child.Columns[0] == column {
 			return c.MetaScore
 		}
 	}

@@ -127,6 +127,52 @@ func TestGeneratedSQLRunsWithoutEditing(t *testing.T) {
 	}
 }
 
+// TestGeneratedCompositeSQLRunsWithoutEditing is the same promise at arity n,
+// where the column lists have to line up position by position. A reordered list
+// produces a constraint that links the wrong columns with no syntax error, so
+// only a real server can tell the difference.
+func TestGeneratedCompositeSQLRunsWithoutEditing(t *testing.T) {
+	dsn := testutil.Postgres(t, "composite_keys")
+	dir := t.TempDir()
+
+	runCommand(t, "discover", "--full", "--dsn", dsn, "--out", dir)
+
+	conn := connect(t, dsn)
+	ctx := context.Background()
+
+	confirmed := readArtifact(t, dir, report.FileConfirmed)
+	if !strings.Contains(confirmed, `FOREIGN KEY ("empresa_id", "numero")`) {
+		t.Fatalf("the composite relationship did not reach the artifact:\n%s", confirmed)
+	}
+
+	stmts := executable(confirmed)
+	if _, err := conn.Exec(ctx, stmts); err != nil {
+		t.Fatalf("the composite artifact does not run as generated: %v\n--- statements ---\n%s", err, stmts)
+	}
+
+	// Validating is the proof the constraint agrees with what validation
+	// measured, including the rows MATCH SIMPLE exempts: a partially-NULL row
+	// counted as an orphan would make this fail.
+	var name string
+	if err := conn.QueryRow(ctx,
+		`SELECT conname FROM pg_constraint WHERE contype = 'f' AND conrelid = 'public.item'::regclass`,
+	).Scan(&name); err != nil {
+		t.Fatalf("the constraint was not created: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `ALTER TABLE public.item VALIDATE CONSTRAINT `+pgx.Identifier{name}.Sanitize()); err != nil {
+		t.Errorf("the confirmed composite key does not validate against the data it was confirmed on: %v", err)
+	}
+
+	for _, stmt := range strings.Split(executable(readArtifact(t, dir, report.FileBroken)), ";") {
+		if strings.TrimSpace(stmt) == "" {
+			continue
+		}
+		if _, err := conn.Exec(ctx, stmt); err != nil {
+			t.Errorf("a composite orphan query does not run: %v\n--- query ---\n%s", err, stmt)
+		}
+	}
+}
+
 // TestGeneratedAuditSQLRuns covers the other artifact against the fixture built
 // for it: constraints declared NOT VALID with orphans already in place.
 func TestGeneratedAuditSQLRuns(t *testing.T) {
@@ -188,6 +234,7 @@ func TestArtifactsNeverCarryUserData(t *testing.T) {
 		{"validation", []string{"discover", "--full"}, []string{report.FileConfirmed, report.FileBroken}},
 		{"inferable", []string{"discover", "--include-rejected"}, []string{report.FileConfirmed, report.FileBroken}},
 		{"stats_prefilter", []string{"discover"}, []string{report.FileConfirmed, report.FileBroken}},
+		{"composite_keys", []string{"discover", "--full"}, []string{report.FileConfirmed, report.FileBroken}},
 		{"not_valid_constraints", []string{"audit"}, []string{report.FileNotValid}},
 		{"restricted_privileges", []string{"audit"}, []string{report.FileNotValid}},
 		{"unindexed_fks", []string{"audit"}, []string{report.FileNotValid}},

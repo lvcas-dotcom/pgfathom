@@ -24,6 +24,13 @@ const (
 	SigAmbiguousTarget SignalKind = "ambiguous_target"
 )
 
+// SigCompositeArity is a whole key agreeing at once. Two columns lining up is
+// far less likely to be coincidence than one, so arity is evidence — emitted
+// once, never once per column: a four-column key would otherwise carry twenty
+// signals stating four facts, and saturation would let arity pin any score to
+// the ceiling.
+const SigCompositeArity SignalKind = "composite_arity"
+
 // Catalog evidence.
 const (
 	SigChildIndexed   SignalKind = "child_indexed"
@@ -85,11 +92,12 @@ const (
 	VerdictUnvalidated Verdict = "unvalidated"
 )
 
-// Candidate is a possible relationship between two columns, raised by naming
-// heuristics, by usage evidence, or by both.
+// Candidate is a possible relationship between two keys, raised by naming
+// heuristics, by usage evidence, or by both. A single-column relationship is
+// the arity-one case, not a separate shape.
 type Candidate struct {
-	Child  ColumnRef `json:"child"`
-	Parent ColumnRef `json:"parent"`
+	Child  KeyRef `json:"child"`
+	Parent KeyRef `json:"parent"`
 
 	// Signals are the evidence behind MetaScore, kept so a score can be
 	// explained rather than merely asserted.
@@ -145,6 +153,12 @@ type Validation struct {
 
 	NotNullRows  int64 `json:"not_null_rows"`
 	DistinctVals int64 `json:"distinct_vals"`
+
+	// PartialNullRows counts rows with a NULL in part of the key and a value in
+	// the rest. Under MATCH SIMPLE — the SQL default, and what the generated DDL
+	// uses — those rows are exempt from the constraint, silently. Zero by
+	// construction on a single-column key; a finding on a composite one.
+	PartialNullRows int64 `json:"partial_null_rows,omitempty"`
 
 	// OrphanRows and OrphanVals count the same failure in two units. One bad
 	// value repeated a million times and a million rare bad values are

@@ -122,7 +122,7 @@ A inclusão do `audit` no MVP é deliberada. São achados que reutilizam a mesma
 
 ### Fora do escopo do MVP
 
-Chaves compostas. Detecção de padrões semânticos além de FK (soft delete, tenant, enum). Diagrama. Suporte a outros bancos além de PostgreSQL. Modo de escrita no banco, em qualquer fase, sob qualquer flag, jamais.
+Detecção de padrões semânticos além de FK (soft delete, tenant, enum). Diagrama. Suporte a outros bancos além de PostgreSQL. Modo de escrita no banco, em qualquer fase, sob qualquer flag, jamais.
 
 ### Fases seguintes
 
@@ -132,7 +132,7 @@ Esta fase vem cedo de propósito, e a razão é estratégica. Uma ferramenta de 
 
 **Fase 3 — Achados estruturais.** Expansão do `audit`. Tabelas sem leitura nem escrita desde o último reset de estatística, com todas as ressalvas da seção de armadilhas. Colunas integralmente nulas. Colunas com nome de padrão temporal ou de exclusão lógica usadas de forma inconsistente entre tabelas. `varchar` de baixa cardinalidade que deveria ser enum ou tabela de domínio, com as variações de digitação contadas — nunca exibidas.
 
-**Fase 4 — Padrões transversais.** Detecção de coluna de tenant e identificação de tabelas que deveriam tê-la e não têm. Detecção de relacionamento polimórfico, o par `entidade_id` mais `entidade_tipo`, que a inferência simples nunca vai pegar corretamente. Chaves estrangeiras compostas.
+**Fase 4 — Padrões transversais.** Detecção de coluna de tenant e identificação de tabelas que deveriam tê-la e não têm. Detecção de relacionamento polimórfico, o par `entidade_id` mais `entidade_tipo`, que a inferência simples nunca vai pegar corretamente.
 
 **Fase 5 — Consumidores do modelo.** Exportação para DBML, Mermaid e PlantUML a partir do modelo enriquecido, para que ferramenta de diagrama consuma um schema que conhece os relacionamentos reais.
 
@@ -306,7 +306,7 @@ type Coverage struct {
     TablesAnalyzed     int
     TablesNoPrivilege  []string
     TablesExcluded     []string
-    TablesUnsupported  []string      // particionada, herança, PK composta
+    TablesUnsupported  []string      // particionada, herança, sem PK
     CandidatesFound    int
     CandidatesValidated int
     CandidatesTimedOut  int
@@ -446,7 +446,7 @@ Daí a struct `Coverage` ser obrigatória em toda saída, e o resumo do terminal
 
 Relacionamento polimórfico, onde `documento_id` só faz sentido junto com `documento_tipo`. A validação vai encontrar contenção baixa e rejeitar, o que é o comportamento correto, mas a ferramenta deveria reconhecer o padrão pelas colunas vizinhas e dizer que reconheceu.
 
-Chave estrangeira composta, fora do escopo: se a tabela alvo tem PK composta, pular com nota.
+Chave estrangeira composta parcialmente correspondida: se o lado filho oferece contraparte para parte das posições da chave alvo e não para todas, nenhum candidato é gerado — a constraint parcial rejeitaria linha válida — e a fração que casou vira nota. Idem para assinatura de chave dividida por mais de uma tabela sem que nada no filho nomeie qualquer uma delas: mais de um candidato alcançaria contenção total e no máximo um é real, então nenhum é escolhido.
 
 Tabelas particionadas, onde estatística e contagem se comportam diferente. Ler da tabela pai e não iterar partições.
 

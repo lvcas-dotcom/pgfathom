@@ -148,7 +148,7 @@ func confirmedFile(h header, r *model.Result, confirmed []model.Candidate) strin
 		return b.String()
 	}
 
-	indexed := indexedColumns(r.Schemas)
+	indexes := tableIndexes(r.Schemas)
 
 	for _, c := range confirmed {
 		name := constraintName(c)
@@ -157,12 +157,13 @@ func confirmedFile(h header, r *model.Result, confirmed []model.Candidate) strin
 		if v := c.Validation; v != nil {
 			fmt.Fprintf(&b, "-- containment %.1f%% of %d rows over %d distinct values, no orphans\n",
 				100*v.ContainmentRows(), v.NotNullRows, v.DistinctVals)
+			writeExemptNote(&b, *v)
 		}
 
 		fmt.Fprintf(&b, "ALTER TABLE %s\n", qualify(c.Child))
 		fmt.Fprintf(&b, "    ADD CONSTRAINT %s\n", ident(name.value))
 		fmt.Fprintf(&b, "    FOREIGN KEY (%s) REFERENCES %s (%s)\n",
-			ident(c.Child.Column), qualify(c.Parent), ident(c.Parent.Column))
+			columnList(c.Child), qualify(c.Parent), columnList(c.Parent))
 		b.WriteString("    NOT VALID;\n\n")
 
 		b.WriteString("-- Validate separately. The statement above scanned nothing and held the\n")
@@ -171,7 +172,7 @@ func confirmedFile(h header, r *model.Result, confirmed []model.Candidate) strin
 		fmt.Fprintf(&b, "-- ALTER TABLE %s VALIDATE CONSTRAINT %s;\n\n",
 			qualify(c.Child), ident(name.value))
 
-		if !indexed[indexKey(c.Child)] {
+		if !model.IndexLeads(indexes[c.Child.TableRef()], c.Child.Columns) {
 			writeIndexSuggestion(&b, c)
 		}
 	}
@@ -182,10 +183,10 @@ func confirmedFile(h header, r *model.Result, confirmed []model.Candidate) strin
 // writeIndexSuggestion emits the index the child side is missing, commented,
 // with both traps spelled out. Neither is guessable from the line itself.
 func writeIndexSuggestion(b *strings.Builder, c model.Candidate) {
-	idx := truncateIdent("ix_" + c.Child.Table + "_" + c.Child.Column)
+	idx := truncateIdent("ix_" + c.Child.Table + "_" + strings.Join(c.Child.Columns, "_"))
 
 	fmt.Fprintf(b, "-- No index has %s in leading position. Without one, every DELETE on\n",
-		ident(c.Child.Column))
+		columnList(c.Child))
 	fmt.Fprintf(b, "-- %s becomes a sequential scan of %s.\n", c.Parent.TableRef(), c.Child.TableRef())
 	b.WriteString("--\n")
 	b.WriteString("-- CONCURRENTLY does NOT run inside a transaction block: this fails under\n")
@@ -196,7 +197,7 @@ func writeIndexSuggestion(b *strings.Builder, c model.Candidate) {
 			maxIdentifierBytes, idx.full)
 	}
 	fmt.Fprintf(b, "-- CREATE INDEX CONCURRENTLY %s ON %s (%s);\n\n",
-		ident(idx.value), qualify(c.Child), ident(c.Child.Column))
+		ident(idx.value), qualify(c.Child), columnList(c.Child))
 }
 
 func brokenFile(h header, broken []model.Candidate) string {
@@ -224,6 +225,7 @@ func brokenFile(h header, broken []model.Candidate) string {
 			}
 			fmt.Fprintf(&b, "-- %d orphan rows over %d distinct values%s; containment %.1f%% of %d rows examined\n",
 				v.OrphanRows, v.OrphanVals, floor, 100*v.ContainmentRows(), v.NotNullRows)
+			writeExemptNote(&b, *v)
 		}
 
 		b.WriteString("\n-- Step 1 — look at what is orphaned.\n")
@@ -235,7 +237,7 @@ func brokenFile(h header, broken []model.Candidate) string {
 		fmt.Fprintf(&b, "-- ALTER TABLE %s\n", qualify(c.Child))
 		fmt.Fprintf(&b, "--     ADD CONSTRAINT %s\n", ident(name.value))
 		fmt.Fprintf(&b, "--     FOREIGN KEY (%s) REFERENCES %s (%s)\n",
-			ident(c.Child.Column), qualify(c.Parent), ident(c.Parent.Column))
+			columnList(c.Child), qualify(c.Parent), columnList(c.Parent))
 		b.WriteString("--     NOT VALID;\n\n")
 	}
 
@@ -246,14 +248,68 @@ func brokenFile(h header, broken []model.Candidate) string {
 // data: the anti-join finds them at run time, on the user's own screen, which
 // is the only place they ever belong.
 func orphanQuery(c model.Candidate) string {
-	return fmt.Sprintf(`SELECT c.%[1]s AS orphan_value, count(*) AS orphan_rows
-FROM %[2]s AS c
-WHERE c.%[1]s IS NOT NULL
-  AND NOT EXISTS (SELECT 1 FROM %[3]s AS p WHERE p.%[4]s = c.%[1]s)
-GROUP BY 1
-ORDER BY 2 DESC;
+	n := c.Child.Arity()
+	projected := make([]string, 0, n)
+	for _, col := range c.Child.Columns {
+		projected = append(projected, "c."+ident(col))
+	}
+
+	return fmt.Sprintf(`SELECT %s, count(*) AS orphan_rows
+FROM %s AS c
+WHERE %s
+GROUP BY %s
+ORDER BY %d DESC;
 `,
-		ident(c.Child.Column), qualify(c.Child), qualify(c.Parent), ident(c.Parent.Column))
+		strings.Join(projected, ", "), qualify(c.Child), antiJoin(c.Child, c.Parent),
+		groupBy(n), n+1)
+}
+
+// antiJoin renders the condition that isolates the rows a foreign key would
+// reject: every key column non-null, and nothing on the parent side matching
+// every position.
+//
+// The MATCH SIMPLE exemption is not a detail of phrasing. It is the semantics
+// of the constraint this tool emits, and it is what the validation measured;
+// a listing that disagreed with either would accuse rows the constraint lets
+// through.
+//
+// One owner for the rule, because both the orphan listing of discover and the
+// violation count of audit ask exactly the same question.
+func antiJoin(child, parent model.KeyRef) string {
+	notNull := make([]string, 0, child.Arity())
+	match := make([]string, 0, child.Arity())
+
+	for i, col := range child.Columns {
+		notNull = append(notNull, "c."+ident(col)+" IS NOT NULL")
+		if i < len(parent.Columns) {
+			match = append(match, "p."+ident(parent.Columns[i])+" = c."+ident(col))
+		}
+	}
+
+	return fmt.Sprintf("%s\n  AND NOT EXISTS (SELECT 1 FROM %s AS p WHERE %s)",
+		strings.Join(notNull, "\n  AND "), qualify(parent), strings.Join(match, " AND "))
+}
+
+// groupBy renders the ordinal group list, "1, 2, ..., n".
+func groupBy(n int) string {
+	out := make([]string, 0, n)
+	for i := 1; i <= n; i++ {
+		out = append(out, fmt.Sprintf("%d", i))
+	}
+	return strings.Join(out, ", ")
+}
+
+// writeExemptNote states how many rows the constraint will never look at.
+// Under MATCH SIMPLE a row with a NULL in part of the key is exempt, which is
+// the kind of thing that is true, silent, and worth saying out loud.
+func writeExemptNote(b *strings.Builder, v model.Validation) {
+	if v.PartialNullRows == 0 {
+		return
+	}
+	fmt.Fprintf(b, "-- %d rows have a NULL in part of the key and a value in the rest. MATCH\n",
+		v.PartialNullRows)
+	b.WriteString("-- SIMPLE — the default, and what the DDL below uses — exempts them, so the\n")
+	b.WriteString("-- constraint will never check those rows.\n")
 }
 
 // pendingKey is one declared-but-never-verified constraint.
@@ -294,29 +350,16 @@ func notValidFile(h header, pending []pendingKey) string {
 	return b.String()
 }
 
-// violationQuery counts rows the constraint would reject. Composite keys join
-// on every column pair, and a NULL in any of them exempts the row, which is
-// what MATCH SIMPLE — the default — means.
+// violationQuery counts rows the constraint would reject, by the same rule the
+// orphan listing uses.
 func violationQuery(p pendingKey) string {
-	notNull := make([]string, 0, len(p.fk.Columns))
-	match := make([]string, 0, len(p.fk.Columns))
-
-	for i, col := range p.fk.Columns {
-		notNull = append(notNull, "c."+ident(col)+" IS NOT NULL")
-		if i < len(p.fk.RefColumns) {
-			match = append(match, "p."+ident(p.fk.RefColumns[i])+" = c."+ident(col))
-		}
-	}
+	child := model.KeyRef{Schema: p.table.Schema, Table: p.table.Name, Columns: p.fk.Columns}
+	parent := model.KeyRef{Schema: p.fk.RefSchema, Table: p.fk.RefTable, Columns: p.fk.RefColumns}
 
 	return fmt.Sprintf(`SELECT count(*) AS violating_rows
 FROM %s AS c
-WHERE %s
-  AND NOT EXISTS (SELECT 1 FROM %s AS p WHERE %s);
-`,
-		identTable(p.table.Schema, p.table.Name),
-		strings.Join(notNull, "\n  AND "),
-		identTable(p.fk.RefSchema, p.fk.RefTable),
-		strings.Join(match, " AND "))
+WHERE %s;
+`, qualify(child), antiJoin(child, parent))
 }
 
 // emptyNote states what an empty category means. In sampled mode the count is
@@ -349,8 +392,12 @@ type identifier struct {
 	truncated bool
 }
 
+// constraintName is derived from the child table and its key columns, in key
+// order. Order belongs in the name: two keys over the same columns in
+// different orders are different constraints, and a name that collapsed them
+// would make the second ADD CONSTRAINT fail as a duplicate.
 func constraintName(c model.Candidate) identifier {
-	return truncateIdent("fk_" + c.Child.Table + "_" + c.Child.Column)
+	return truncateIdent("fk_" + c.Child.Table + "_" + strings.Join(c.Child.Columns, "_"))
 }
 
 // truncateIdent fits a name into the server's identifier budget. The budget is
@@ -389,26 +436,29 @@ func identTable(schema, table string) string {
 	return pgx.Identifier{schema, table}.Sanitize()
 }
 
-func qualify(r model.ColumnRef) string { return identTable(r.Schema, r.Table) }
+func qualify(r model.KeyRef) string { return identTable(r.Schema, r.Table) }
 
-// indexedColumns maps every column that leads an index. Leading position is
-// what makes an index usable for the foreign key lookup, so a composite index
-// counts only for its first column.
-func indexedColumns(schemas []model.Schema) map[string]bool {
-	out := make(map[string]bool)
+// columnList renders the key's columns quoted and comma separated, in key
+// order.
+func columnList(r model.KeyRef) string {
+	out := make([]string, 0, len(r.Columns))
+	for _, c := range r.Columns {
+		out = append(out, ident(c))
+	}
+	return strings.Join(out, ", ")
+}
+
+// tableIndexes maps every table to its indexes, so the lookup below costs one
+// pass over the schema rather than one per confirmed relationship.
+func tableIndexes(schemas []model.Schema) map[string][]model.Index {
+	out := make(map[string][]model.Index)
 	for _, s := range schemas {
 		for _, t := range s.Tables {
-			for _, idx := range t.Indexes {
-				if len(idx.Columns) > 0 {
-					out[strings.ToLower(s.Name+"."+t.Name+"."+idx.Columns[0])] = true
-				}
-			}
+			out[t.Ref()] = t.Indexes
 		}
 	}
 	return out
 }
-
-func indexKey(r model.ColumnRef) string { return strings.ToLower(r.String()) }
 
 // notValidKeys collects the declared constraints that never verified the rows
 // already in the table, in a stable order so the artifact is reproducible.

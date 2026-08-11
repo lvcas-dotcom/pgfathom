@@ -62,7 +62,7 @@ func TestSerializedModelLeaksNoUserData(t *testing.T) {
 		TablesNoPrivilege: []string{"public.folha_pagamento"},
 		TablesUnsupported: []model.SkippedTable{{
 			Table:  "public.documento",
-			Reason: model.ReasonCompositePK,
+			Reason: model.ReasonNoPrimaryKey,
 		}},
 		CandidatesFound:     1847,
 		CandidatesValidated: 226,
@@ -95,8 +95,8 @@ func TestSerializedModelLeaksNoUserData(t *testing.T) {
 	}}
 
 	result.Candidates = []model.Candidate{{
-		Child:  model.ColumnRef{Schema: "public", Table: "pedido", Column: "cliente_id"},
-		Parent: model.ColumnRef{Schema: "public", Table: "cliente", Column: "id"},
+		Child:  model.SingleKey("public", "pedido", "cliente_id"),
+		Parent: model.SingleKey("public", "cliente", "id"),
 		Signals: []model.Signal{
 			{Kind: model.SigExactName, Weight: 0.4, Detail: "cliente"},
 			{Kind: model.SigJoinInView, Weight: 0.5, Detail: "public.vw_pedido_completo"},
