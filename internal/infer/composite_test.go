@@ -68,17 +68,52 @@ func TestPrefixedDerivationMatches(t *testing.T) {
 	}
 }
 
-func TestMixedDerivationDoesNotMatch(t *testing.T) {
+// TestAnchorBesideDiscriminatorMatches is the shape the corpus said the first
+// rule was missing. One position names the target, the other is a discriminator
+// that crosses the whole schema; every composite key in the largest public
+// schema measured looks exactly like this.
+func TestAnchorBesideDiscriminatorMatches(t *testing.T) {
 	nota := keyed("nota", []string{"empresa_id", "numero"})
-	// One position by mirror, the other only by prefix: the shape of two common
-	// column names sharing a table, not of a key.
 	frete := tbl("frete", col("empresa_id"), col("nota_numero"))
 
 	res := generate(t, schema(nota, frete))
 
+	c, ok := find(res, "public.frete.(empresa_id, nota_numero)", "public.nota.(empresa_id, numero)")
+	if !ok {
+		t.Fatalf("one anchor beside a discriminator must match; got %d survivors", len(res.Candidates))
+	}
+	if !c.HasSignal(model.SigExactName) {
+		t.Error("the anchor carries the target's name and the score must say so")
+	}
+}
+
+// TestAnchorFirstPositionMatches is the same shape with the anchor and the
+// discriminator swapped, which is how the corpus writes it: the key is
+// (id, partition_id) and the child offers (build_id, partition_id).
+func TestAnchorFirstPositionMatches(t *testing.T) {
+	build := keyed("build", []string{"id", "partition_id"})
+	state := tbl("build_pending_state", col("build_id"), col("partition_id"))
+
+	res := generate(t, schema(build, state))
+
+	if _, ok := find(res, "public.build_pending_state.(build_id, partition_id)", "public.build.(id, partition_id)"); !ok {
+		t.Fatalf("an anchor in the first position must match; got %d survivors", len(res.Candidates))
+	}
+}
+
+// TestNoAnchorNeedsAUniqueTarget is what survived of the original fear: common
+// column names with nothing pointing at any particular table.
+func TestNoAnchorNeedsAUniqueTarget(t *testing.T) {
+	res := generate(t, schema(
+		keyed("empresa_filial", []string{"empresa_id", "filial_id"}),
+		keyed("filial_ativa", []string{"empresa_id", "filial_id"}),
+		tbl("frete", col("empresa_id"), col("filial_id")),
+	))
+
 	for _, c := range res.Candidates {
-		if c.Child.Composite() {
-			t.Errorf("mixed derivations must not produce %s", c.Child)
+		if c.Child.TableRef() == "public.frete" && c.Child.Composite() {
+			t.Errorf("no anchor and more than one possible target must produce nothing: %s → %s",
+				c.Child, c.Parent)
 		}
 	}
 }

@@ -28,13 +28,13 @@ Tool `dev`.
 
 1426 tables and 1857 declared keys — the largest public truth set available. Needs btree_gist and pg_trgm, creates two schemas of its own, and has 101 partitioned tables.
 
-PostgreSQL 16.14 · profile `en` · 1054 tables · **1857 keys in the truth set**, 53 of them composite · commit `a399ea9614c4`
+PostgreSQL 18.4 · profile `en` · 1054 tables · **1857 keys in the truth set**, 53 of them composite · commit `a399ea9614c4`
 
 | Configuration | Recovered | Recall | of which composite | Candidates | Outside the truth set |
 |---|---:|---:|---:|---:|---:|
-| profile alone | 1130 | 60.9% | 0 of 53 | 1654 | 524 |
-| + detection | 1130 | 60.9% | 0 of 53 | 1654 | 524 |
-| + usage evidence | 1131 | 60.9% | 0 of 53 | 1657 | 526 |
+| profile alone | 1131 | 60.9% | 1 of 53 | 1662 | 531 |
+| + detection | 1131 | 60.9% | 1 of 53 | 1662 | 531 |
+| + usage evidence | 1132 | 61.0% | 1 of 53 | 1665 | 533 |
 
 Candidates outside the truth set are **not false positives**. In a real schema
 a true relationship that was never declared is this tool's product; counting it
@@ -46,17 +46,17 @@ Coverage: 953 of 1054 tables analysed (90%). 101 partitioned.
 
 354 tables and 23 declared keys. Classic Rails keeps integrity in the application, so the denominator is tiny: this row measures what the tool proposes in a schema that declares almost nothing, not recall.
 
-PostgreSQL 16.14 · profile `en` · 354 tables · **23 keys in the truth set** · commit `e4f8b88ea34f`
+PostgreSQL 18.4 · profile `en` · 351 tables · **23 keys in the truth set** · commit `e4f8b88ea34f`
 
 | Configuration | Recovered | Recall | of which composite | Candidates | Outside the truth set |
 |---|---:|---:|---:|---:|---:|
-| profile alone | 11 | 47.8% | 0 of 0 | 349 | 338 |
-| + detection | 10 | 43.5% | 0 of 0 | 341 | 331 |
-| + usage evidence | 10 | 43.5% | 0 of 0 | 341 | 331 |
+| profile alone | 11 | 47.8% | 0 of 0 | 348 | 337 |
+| + detection | 10 | 43.5% | 0 of 0 | 340 | 330 |
+| + usage evidence | 10 | 43.5% | 0 of 0 | 340 | 330 |
 
 Candidates outside the truth set are **not false positives**. In a real schema
 a true relationship that was never declared is this tool's product; counting it
 as a defect would publish as an error the very thing being delivered.
 
-Coverage: 332 of 354 tables analysed (94%). 22 no_primary_key.
+Coverage: 332 of 351 tables analysed (95%). 19 no_primary_key.
 

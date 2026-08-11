@@ -82,8 +82,12 @@ CREATE TABLE movimentacao (
     motivo     text   NOT NULL
 );
 
--- Derivação misturada: uma posição por espelho, outra só por prefixo. Não é
--- chave, é coincidência de dois nomes comuns na mesma tabela.
+-- Âncora mais discriminador: `nota_numero` nomeia o alvo, `empresa_id` é a
+-- coluna que atravessa o schema e sozinha não aponta para nada. É a forma
+-- canônica de chave composta em base particionada ou multi-tenant, e as 53 do
+-- GitLab são todas assim. Esta fixture chegou a existir como armadilha, sob a
+-- regra que exigia derivação uniforme; o corpus mostrou que a regra estava
+-- errada, e o cenário mudou de lado.
 CREATE TABLE frete (
     id          bigint PRIMARY KEY,
     empresa_id  bigint NOT NULL,

@@ -141,6 +141,9 @@ func TestCompositeKeysEndToEnd(t *testing.T) {
 	for child, want := range map[string]model.Verdict{
 		"public.item.(empresa_id, numero)":             model.VerdictConfirmed,
 		"public.rateio.(nota_empresa_id, nota_numero)": model.VerdictBroken,
+		// One anchor beside a discriminator: the shape the corpus said the
+		// first rule was missing.
+		"public.frete.(empresa_id, nota_numero)": model.VerdictConfirmed,
 	} {
 		got, found := byChild[child]
 		if !found {
@@ -179,8 +182,6 @@ func TestCompositeTrapsProduceNothing(t *testing.T) {
 		case "public.movimentacao", "public.lotacao", "public.alocacao", "public.posto":
 			t.Errorf("a key signature shared by several tables must not be guessed: %s → %s",
 				c.Child, c.Parent)
-		case "public.frete":
-			t.Errorf("mixed derivations are a coincidence, not a key: %s → %s", c.Child, c.Parent)
 		case "public.aditivo":
 			t.Errorf("two of three positions is not a key: %s → %s", c.Child, c.Parent)
 		}

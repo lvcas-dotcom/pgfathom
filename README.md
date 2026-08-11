@@ -358,7 +358,7 @@ dumps themselves stay out of the repository. Full results, including cost per st
 
 | Schema | Tables | FKs | Profile alone | + detection | + join mining |
 |---|---:|---:|---:|---:|---:|
-| GitLab | 1,054 | 1,857 | **60.9%** | 60.9% | 60.9% |
+| GitLab | 1,054 | 1,857 | **60.9%** | 60.9% | 61.0% |
 | Discourse | 354 | 23 | **47.8%** | 43.5% | 43.5% |
 
 Three things this table is not saying, all of which the private one above could hide.
@@ -374,11 +374,14 @@ these rows describe a database that declares no integrity whatsoever — the har
 a real one — while the private rows above describe schemas that still had 470 declared keys
 for it to read. Same feature, two different questions.
 
-**Composite keys: 0 of 53 recovered on GitLab.** Every one of them has the shape
-`(partition_id, build_id) → (id, partition_id)`: one position matching by mirror and one by
-name. Matching refuses to mix the two derivations, and the target's application prefix is not
-being stripped. Both are known, both are being fixed, and the number stays here until they
-are.
+**Composite keys: 1 of 53 recovered on GitLab**, and the 52 are explained. Every one has the
+shape `(partition_id, build_id) → (id, partition_id)`: one position matching the key column by
+name, one anchoring on the target. Matching used to refuse that mix; it no longer does, which
+is where the one came from. The remaining 52 fail on the other half — reaching `p_ci_builds`
+from `build_id`. Matching by the table's trailing segment was measured against the schema
+before being written and would recover none of them: `builds` names six tables, `runners`
+five, `requests` seven, and picking one would be a guess. That is the same wall as the rest of
+the gap below, now with a count on it.
 
 Discourse declares 23 keys across 354 tables, so each hit moves it four points; the row is
 there to show what the tool proposes in a schema that declares almost nothing, not to be read

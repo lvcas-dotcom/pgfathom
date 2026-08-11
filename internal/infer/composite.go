@@ -15,21 +15,24 @@ import (
 // it would bury the two-of-three cases that are actually near misses.
 const minPartialMatch = 2
 
-// derivation is how a child column was recognized as standing for a column of
-// the target's key.
+// derivation is how a key as a whole was recognized.
 type derivation int
 
 const (
-	// derivMirror: the child carries the key column's own name, as in
+	// derivMirror: every position carries the key column's own name, as in
 	// nota(empresa_id, filial_id) against empresa_filial(empresa_id, filial_id).
 	// Nothing in the child names the target, so the key signature is the whole
-	// of the evidence.
+	// of the evidence — which is why this one alone needs a unique target.
 	derivMirror derivation = iota
 
-	// derivPrefixed: a form of the target's name precedes each key column, as in
-	// item(nota_empresa_id, nota_numero) against nota(empresa_id, numero). The
-	// name anchors the hypothesis the way it does at arity one.
-	derivPrefixed
+	// derivAnchored: at least one position carries a form of the target's name
+	// ahead of the key column — item(nota_empresa_id, nota_numero) — and the
+	// remaining positions mirror. That covers the whole range from every
+	// position anchored down to a single anchor beside discriminators, which is
+	// what a composite key in a partitioned or multi-tenant schema looks like:
+	// ci_build_pending_states(partition_id, build_id) against
+	// p_ci_builds(id, partition_id).
+	derivAnchored
 )
 
 // keyMatch is one complete resolution of a target's key against a child table.
@@ -38,7 +41,7 @@ type keyMatch struct {
 	columns []string // child columns, in target key order
 
 	derivation derivation
-	origin     profile.Origin // meaningful only for derivPrefixed
+	origin     profile.Origin // meaningful only for derivAnchored
 }
 
 func (m keyMatch) signature() string {
@@ -92,9 +95,9 @@ func compositeFor(res *Result, child model.Table, targets []model.Table, opts Op
 
 		switch {
 		case len(complete) > 1:
-			// Two derivations resolving to different column sets is the shape of
-			// a coincidence, not of a key. Choosing between them by position or
-			// by type would be a hunch wearing a decision's clothes.
+			// Two readings resolving to different column sets leave no way to
+			// say which key was meant. Choosing by position or by type would be
+			// a hunch wearing a decision's clothes.
 			res.Skipped = append(res.Skipped, Skip{
 				Child:  model.KeyRef{Schema: child.Schema, Table: child.Name, Columns: complete[0].columns},
 				Target: target.Ref(),
@@ -117,56 +120,108 @@ func compositeFor(res *Result, child model.Table, targets []model.Table, opts Op
 	}
 }
 
-// matchKey resolves the target's key against the child's columns, once per
-// available derivation. It returns every complete resolution, and the columns
-// of the best incomplete one for the near-miss report.
+// matchKey resolves the target's key against the child's columns: once without
+// any name to go on, and once per form of the target's name. It returns every
+// complete resolution, and the columns of the best incomplete one for the
+// near-miss report.
 func matchKey(child, target model.Table, p *profile.Profile) (complete []keyMatch, partial []string) {
-	prefixes := []struct {
-		value  string
-		deriv  derivation
-		origin profile.Origin
-	}{{value: "", deriv: derivMirror}}
-
-	for _, f := range p.TableForms(target.Name) {
-		prefixes = append(prefixes, struct {
-			value  string
-			deriv  derivation
-			origin profile.Origin
-		}{value: f.Value + "_", deriv: derivPrefixed, origin: f.Origin})
-	}
-
 	seen := make(map[string]bool)
 
-	for _, pre := range prefixes {
-		var cols []string
-		for _, k := range target.PrimaryKey {
-			col, ok := child.Column(pre.value + k)
-			if !ok {
-				continue
-			}
-			cols = append(cols, col.Name)
-		}
-
+	// A reading the child cannot offer is not a reading, so eligibility and type
+	// are settled here rather than downstream. A rejected reading that survived
+	// this far would count as a second interpretation and take a valid one down
+	// with it as ambiguous — the child's own surrogate `id` mirroring a target's
+	// `id` is exactly how that happens.
+	add := func(m keyMatch, cols []string) {
 		if len(cols) < len(target.PrimaryKey) {
 			if len(cols) > len(partial) {
 				partial = cols
 			}
-			continue
+			return
 		}
-
 		// A table matching its own key is a tautology, not a relationship.
 		if child.Ref() == target.Ref() && sameColumns(cols, target.PrimaryKey) {
-			continue
+			return
 		}
-
-		m := keyMatch{target: target, columns: cols, derivation: pre.deriv, origin: pre.origin}
+		if !usable(child, target, cols) {
+			return
+		}
+		m.columns = cols
 		if seen[m.signature()] {
-			continue
+			return
 		}
 		seen[m.signature()] = true
 		complete = append(complete, m)
 	}
+
+	add(keyMatch{target: target, derivation: derivMirror}, resolveMirror(child, target))
+
+	for _, f := range p.TableForms(target.Name) {
+		cols, anchors := resolveAnchored(child, target, f.Value)
+		if anchors == 0 {
+			// Zero anchors is the mirror case, which the call above already
+			// covered and which answers to a stricter rule.
+			continue
+		}
+		add(keyMatch{target: target, derivation: derivAnchored, origin: f.Origin}, cols)
+	}
 	return complete, partial
+}
+
+// usable reports whether the child can actually offer this reading: every
+// column eligible, and every position's type fitting its counterpart.
+func usable(child, target model.Table, cols []string) bool {
+	childCols, ok := keyColumns(child, cols)
+	if !ok {
+		return false
+	}
+	for _, c := range childCols {
+		if !eligible(child, c) {
+			return false
+		}
+	}
+
+	parentCols, ok := keyColumns(target, target.PrimaryKey)
+	if !ok {
+		return false
+	}
+	_, ok = compareKeys(childCols, parentCols)
+	return ok
+}
+
+// resolveMirror matches every position by the key column's own name.
+func resolveMirror(child, target model.Table) []string {
+	var cols []string
+	for _, k := range target.PrimaryKey {
+		col, ok := child.Column(k)
+		if !ok {
+			continue
+		}
+		cols = append(cols, col.Name)
+	}
+	return cols
+}
+
+// resolveAnchored matches each position either by the target's name ahead of
+// the key column — an anchor — or by the key column's own name.
+//
+// One anchor is enough, and one anchor is required. It is what answers "why
+// this table and not another"; the mirrored positions are discriminators like
+// partition_id or empresa_id, columns that cross the whole schema and point
+// nowhere on their own. Requiring every position to anchor was the rule this
+// replaces, and it recovered none of the 53 composite keys in the corpus.
+func resolveAnchored(child, target model.Table, form string) (cols []string, anchors int) {
+	for _, k := range target.PrimaryKey {
+		if col, ok := child.Column(form + "_" + k); ok {
+			cols = append(cols, col.Name)
+			anchors++
+			continue
+		}
+		if col, ok := child.Column(k); ok {
+			cols = append(cols, col.Name)
+		}
+	}
+	return cols, anchors
 }
 
 // scoped pairs a match with whether its target had company.
@@ -178,7 +233,7 @@ type scoped struct {
 // resolveAmbiguity decides what happens when the same child columns point at
 // more than one target.
 //
-// A prefixed match carries the target's name, so ambiguity there is the
+// An anchored match carries the target's name, so ambiguity there is the
 // ordinary kind: the candidates survive and say they are ambiguous, exactly as
 // at arity one. A mirror match carries no name at all, so several targets
 // sharing a key signature would each be validated on their own merits — and
@@ -237,21 +292,16 @@ func hasMirror(group []keyMatch) bool {
 // emitComposite turns a resolved match into a candidate, once the child
 // columns are eligible and every position's type fits.
 func emitComposite(res *Result, child model.Table, m keyMatch, ambiguous bool, opts Options) {
+	// Eligibility and type were settled when the reading was accepted; what is
+	// resolved again here is the columns themselves, for the signals.
 	childCols, ok := keyColumns(child, m.columns)
 	if !ok {
 		return
 	}
-	for _, col := range childCols {
-		if !eligible(child, col) {
-			return
-		}
-	}
-
 	parentCols, ok := keyColumns(m.target, m.target.PrimaryKey)
 	if !ok {
 		return
 	}
-
 	match, ok := compareKeys(childCols, parentCols)
 	if !ok {
 		return
@@ -283,7 +333,7 @@ func compositeSignals(child model.Table, childCols []model.Column, m keyMatch,
 
 	// A mirror match gets no name signal, because it has no name evidence: what
 	// it knows is that the key lines up, and that is the arity signal above.
-	if m.derivation == derivPrefixed {
+	if m.derivation == derivAnchored {
 		if m.origin.Exact() {
 			signals = append(signals, model.Signal{
 				Kind: model.SigExactName, Weight: weightExactName, Detail: m.target.Name,
