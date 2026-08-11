@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 
@@ -216,5 +217,48 @@ func TestCompositeTablesCountAsAnalyzed(t *testing.T) {
 	}
 	for _, s := range cov.TablesUnsupported {
 		t.Errorf("%s recorded as unsupported for %q", s.Table, s.Reason)
+	}
+}
+
+// TestStagesAccountForTheRun is the cost measurement checked against reality:
+// the stages have to be the run, not a sample of it. A stage that quietly
+// dropped out would make the benchmark publish a cost that misses work the
+// user pays for.
+func TestStagesAccountForTheRun(t *testing.T) {
+	res := newRunner(t, "validation").run(t)
+
+	if len(res.Stages) == 0 {
+		t.Fatal("a finished run must report where its time went")
+	}
+
+	var sum time.Duration
+	for _, s := range res.Stages {
+		if s.Duration <= 0 {
+			t.Errorf("stage %q reports %s", s.Stage, s.Duration)
+		}
+		sum += s.Duration
+	}
+
+	total := res.Result.Duration
+	if sum > total {
+		t.Errorf("stages sum to %s over a total of %s", sum, total)
+	}
+	// Assembling the result happens after the last stage, so the stages fall
+	// short of the total by a little. Falling short by a lot would mean work is
+	// happening outside every stage, which is the thing worth catching.
+	if sum < total/2 {
+		t.Errorf("stages account for %s of %s: most of the run happened outside any stage", sum, total)
+	}
+
+	want := []discovery.Stage{
+		discovery.StageCatalog, discovery.StageDetection, discovery.StageEvidence,
+		discovery.StageGeneration, discovery.StagePrefilter, discovery.StageValidation,
+	}
+	var got []discovery.Stage
+	for _, s := range res.Stages {
+		got = append(got, s.Stage)
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("stage order differs from execution order (-want +got):\n%s", diff)
 	}
 }

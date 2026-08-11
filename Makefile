@@ -12,7 +12,7 @@ LDFLAGS := -s -w \
 # CGO_ENABLED=0 não é otimização, é requisito: cross-compile precisa ser trivial.
 export CGO_ENABLED := 0
 
-.PHONY: build test test-integration lint fmt cover crosscheck clean help
+.PHONY: build test test-integration corpus benchmark lint fmt cover crosscheck clean help
 
 ## build: compila o binário em ./bin
 build:
@@ -27,9 +27,19 @@ test:
 test-integration:
 	go test -tags=integration -timeout=20m ./...
 
-## lint: golangci-lint
+## corpus: baixa e confere os schemas do benchmark (única etapa que usa rede)
+corpus:
+	go test -tags=benchmark -timeout=15m -v -run TestFetchCorpus ./internal/bench/...
+
+## benchmark: mede a taxa de recuperação no corpus e escreve docs/benchmark
+benchmark:
+	go test -tags=benchmark -timeout=90m -v -run TestCorpus ./internal/bench/...
+
+## lint: golangci-lint em todas as etiquetas de build
 lint:
 	golangci-lint run
+	golangci-lint run --build-tags integration
+	golangci-lint run --build-tags benchmark
 
 ## fmt: formata e organiza imports
 fmt:

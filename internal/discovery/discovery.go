@@ -73,6 +73,14 @@ type Conn interface {
 	ServerVersion() string
 }
 
+// StageTiming is how long one stage took. Measurement comes from inside
+// because a clock on the outside only sees the total, and the total does not
+// say where the time went.
+type StageTiming struct {
+	Stage    Stage         `json:"stage"`
+	Duration time.Duration `json:"duration_ns"`
+}
+
 // Result is the finished model plus what the report needs beyond it.
 type Result struct {
 	Result *model.Result
@@ -83,6 +91,27 @@ type Result struct {
 
 	// Detection is what the schema revealed about its own naming convention.
 	Detection model.NamingDetection
+
+	// Stages is the cost of each stage that ran, in execution order. A stage
+	// turned off is absent rather than present at zero: "did not run" and "ran
+	// instantly" are different facts.
+	Stages []StageTiming
+}
+
+// timeline accumulates stage costs. Each mark closes the span that started
+// when the previous one closed, so a stage that was skipped contributes no
+// entry and its (empty) elapsed time falls to whichever stage ran next.
+type timeline struct {
+	stages []StageTiming
+	last   time.Time
+}
+
+func newTimeline(start time.Time) *timeline { return &timeline{last: start} }
+
+func (t *timeline) mark(s Stage) {
+	now := time.Now()
+	t.stages = append(t.stages, StageTiming{Stage: s, Duration: now.Sub(t.last)})
+	t.last = now
 }
 
 // Run executes the pipeline. Three stages are allowed to degrade — usage
@@ -92,11 +121,13 @@ type Result struct {
 // to reason about.
 func Run(ctx context.Context, conn Conn, opts Options) (*Result, error) {
 	started := time.Now()
+	tl := newTimeline(started)
 
 	cat, err := catalog.Read(ctx, conn, catalog.Options{Scope: opts.Scope, Exclude: opts.Exclude})
 	if err != nil {
 		return nil, err
 	}
+	tl.mark(StageCatalog)
 
 	// Detection is on by default: whoever needs it is precisely whoever does
 	// not know they need it. Measured against real schemas, a missing local
@@ -106,6 +137,7 @@ func Run(ctx context.Context, conn Conn, opts Options) (*Result, error) {
 	if !opts.NoDetect {
 		detection = opts.Profile.Detect(cat.Schemas)
 		active = opts.Profile.WithDetected(detection)
+		tl.mark(StageDetection)
 	}
 
 	// Usage evidence is what breaks the ceiling of name matching. A failure to
@@ -118,6 +150,7 @@ func Run(ctx context.Context, conn Conn, opts Options) (*Result, error) {
 		} else {
 			evidence = *probed
 		}
+		tl.mark(StageEvidence)
 	}
 
 	inferred := infer.Generate(cat.Schemas, infer.Options{
@@ -125,6 +158,7 @@ func Run(ctx context.Context, conn Conn, opts Options) (*Result, error) {
 		MinScore: opts.MinScore,
 		Evidence: evidence.Joins,
 	})
+	tl.mark(StageGeneration)
 
 	coverage := cat.Coverage
 	coverage.CandidatesFound = len(inferred.Candidates) + len(inferred.Discarded)
@@ -146,12 +180,15 @@ func Run(ctx context.Context, conn Conn, opts Options) (*Result, error) {
 			coverage.CandidatesStatsRejected = len(pre.Rejected)
 			coverage.CandidatesWithoutStats = pre.NoStats
 		}
+		tl.mark(StagePrefilter)
 	}
 
 	validated, err := validate.Run(ctx, conn, cat.Schemas, inferred.Candidates, opts.Validation)
 	if err != nil {
 		return nil, err
 	}
+	tl.mark(StageValidation)
+
 	inferred.Candidates = validated.Candidates
 	coverage.CandidatesValidated = validated.Validated
 	coverage.CandidatesTimedOut = validated.TimedOut
@@ -164,7 +201,12 @@ func Run(ctx context.Context, conn Conn, opts Options) (*Result, error) {
 	result.Findings = observations(inferred)
 	result.Duration = time.Since(started)
 
-	return &Result{Result: result, Discarded: inferred.Discarded, Detection: detection}, nil
+	return &Result{
+		Result:    result,
+		Discarded: inferred.Discarded,
+		Detection: detection,
+		Stages:    tl.stages,
+	}, nil
 }
 
 // observations turns what inference recognized but could not use into

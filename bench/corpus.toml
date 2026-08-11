@@ -1,0 +1,48 @@
+# Corpus de benchmark.
+#
+# O que está versionado aqui é a receita, nunca o dump. Um `structure.sql` de
+# 2,8 MB num repositório cujo argumento de venda é ser auditável numa sentada
+# custaria mais do que vale; com commit fixado e checksum, a reprodução é exata
+# e o repositório continua pequeno. Um upstream que reescreva a história é
+# detectado em vez de silenciosamente medido.
+#
+# `kind` existe desde a primeira entrada, com um valor só em uso. É o que faz um
+# schema que exija subir a aplicação — Mastodon, Redmine e Odoo publicam schema
+# só em DSL ou pelo ORM — entrar depois como linha nova em vez de reescrita.
+
+[[schema]]
+name     = "gitlab"
+kind     = "sql"
+url      = "https://raw.githubusercontent.com/gitlabhq/gitlabhq/a399ea9614c4d2bfd38f8c217ac678145d0b7f2e/db/structure.sql"
+commit   = "a399ea9614c4d2bfd38f8c217ac678145d0b7f2e"
+sha256   = "cb00927a4185f298c2aae6c142fadfb6030c370f7bbe00ddb3792c8460d842ef"
+postgres = "postgres:16-alpine"
+profile  = "en"
+note     = "1426 tables and 1857 declared keys — the largest public truth set available. Needs btree_gist and pg_trgm, creates two schemas of its own, and has 101 partitioned tables."
+
+[[schema]]
+name     = "discourse"
+kind     = "sql"
+url      = "https://raw.githubusercontent.com/discourse/discourse/e4f8b88ea34f1fe23474a62ddb1afb01b65f7b8e/db/structure.sql"
+commit   = "e4f8b88ea34f1fe23474a62ddb1afb01b65f7b8e"
+sha256   = "baa7b4bdfa0df749f5c8b9953adef8aba87194db3fd3aef5ff87d730b32a5a0d"
+# Imagem com pgvector: o schema do Discourse declara colunas `vector` e
+# `halfvec`, e a imagem oficial não traz a extensão. O entrypoint do Postgres
+# roda o script inicial com ON_ERROR_STOP, então a falta dela não degradaria
+# para um schema parcial — o contêiner não sobe.
+postgres = "pgvector/pgvector:pg16"
+profile  = "en"
+note     = "354 tables and 23 declared keys. Classic Rails keeps integrity in the application, so the denominator is tiny: this row measures what the tool proposes in a schema that declares almost nothing, not recall."
+
+# Entrada local, opcional. Um dump real não cabe num manifesto público, e o que
+# ele acrescenta não é gabarito — é comportamento em escala: tempo por etapa,
+# funil e ausência de travamento contra centenas de tabelas com dados de
+# verdade. Presente na máquina, é medido; ausente, o relatório diz que não foi.
+#
+# [[schema]]
+# name     = "municipal-ptbr"
+# kind     = "local"
+# path     = "bench/local/municipal.sql"
+# postgres = "postgres:16-alpine"
+# profile  = "pt-br"
+# note     = "Real anonymised dump. Not reproducible by third parties, and stated as such in the published table."

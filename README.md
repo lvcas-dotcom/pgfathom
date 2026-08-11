@@ -346,8 +346,43 @@ extractor is an open question rather than a settled result. It is reported here 
 feature that measured smaller than its argument should say so.
 
 These are private databases, so the numbers are reproducible by their owners rather than by
-you. A public corpus — GitLab, Odoo, Discourse, Redmine, Mastodon — is the next step, so
-anyone can check them.
+you. That is what the public corpus below is for.
+
+### The public corpus
+
+`make corpus && make benchmark` loads a published schema, drops every declared foreign key,
+and asks the tool how many come back. The recipe is versioned in
+[`bench/corpus.toml`](bench/corpus.toml) with a pinned commit and a checksum per schema; the
+dumps themselves stay out of the repository. Full results, including cost per stage, live in
+[`docs/benchmark/`](docs/benchmark/).
+
+| Schema | Tables | FKs | Profile alone | + detection | + join mining |
+|---|---:|---:|---:|---:|---:|
+| GitLab | 1,054 | 1,857 | **60.9%** | 60.9% | 60.9% |
+| Discourse | 354 | 23 | **47.8%** | 43.5% | 43.5% |
+
+Three things this table is not saying, all of which the private one above could hide.
+
+**No verdict is measured here.** A published `structure.sql` has no rows, so nothing can be
+confirmed or broken; what is measured is whether the right candidate was *raised*. The rule
+that no false positive may be confirmed is enforced against the integration fixtures, where
+the answer was built alongside the scenario.
+
+**Detection is measured with its input removed.** It learns the local reference affix by
+reading the keys a schema already declares, and this procedure drops all of them first. So
+these rows describe a database that declares no integrity whatsoever — the hardest case, and
+a real one — while the private rows above describe schemas that still had 470 declared keys
+for it to read. Same feature, two different questions.
+
+**Composite keys: 0 of 53 recovered on GitLab.** Every one of them has the shape
+`(partition_id, build_id) → (id, partition_id)`: one position matching by mirror and one by
+name. Matching refuses to mix the two derivations, and the target's application prefix is not
+being stripped. Both are known, both are being fixed, and the number stays here until they
+are.
+
+Discourse declares 23 keys across 354 tables, so each hit moves it four points; the row is
+there to show what the tool proposes in a schema that declares almost nothing, not to be read
+as a recall figure.
 
 ### What the remaining gap is
 

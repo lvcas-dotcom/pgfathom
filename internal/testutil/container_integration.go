@@ -1,4 +1,4 @@
-//go:build integration
+//go:build integration || benchmark
 
 // Everything behind this build tag needs Docker. Keeping it tagged is what lets
 // `go test ./...` stay fast and offline, so contributing a naming profile never
