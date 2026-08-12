@@ -54,13 +54,28 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # A escrita no tap vai por deploy key, escopada num repositório só. A chave
+      # é gravada num arquivo porque é um caminho que o goreleaser espera, não o
+      # conteúdo. Sem o segredo, a variável fica vazia e o canal do Homebrew é
+      # pulado — a variável é sempre definida para que o template não avalie uma
+      # chave que não existe. Ver docs/RELEASING.md.
+      - name: chave do tap
+        env:
+          KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "HOMEBREW_TAP_KEY_PATH=" >> "$GITHUB_ENV"
+            echo "::notice::sem chave de deploy do tap: este release sai sem o canal do Homebrew"
+            exit 0
+          fi
+          path="$RUNNER_TEMP/homebrew_tap_key"
+          install -m 600 /dev/null "$path"
+          printf '%s\n' "$KEY" > "$path"
+          echo "HOMEBREW_TAP_KEY_PATH=$path" >> "$GITHUB_ENV"
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Opcional por construção: sem ele o release sai completo com um canal
-          # a menos, em vez de falhar no último passo depois de já ter publicado
-          # binário. Ver docs/RELEASING.md.
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

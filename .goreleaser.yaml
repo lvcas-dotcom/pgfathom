@@ -81,19 +81,43 @@ dockers_v2:
         Discovers and validates PostgreSQL relationships that exist in the data
         but were never declared
 
-# Canal opcional: exige o repositório lvcas-dotcom/homebrew-tap e um token com
-# escrita nele, nenhum dos dois criável a partir daqui. Sem o token o release
-# sai completo com um canal a menos, em vez de falhar no último passo depois de
-# já ter publicado binário. Ver docs/RELEASING.md.
+# Canal opcional, e só macOS: Homebrew no Linux não instala cask, então quem usa
+# brew em Linux fica com o binário do release, `go install` ou a imagem.
+#
+# A escrita no tap vai por deploy key, não por token de usuário: a chave vale
+# para um repositório e nada mais, não autentica como ninguém e não vence. O
+# workflow grava a chave num arquivo e passa o caminho; sem ela, `skip_upload`
+# fica verdadeiro e o release sai completo com um canal a menos, em vez de
+# falhar no último passo depois de já ter publicado binário.
 homebrew_casks:
   - name: pgfathom
-    skip_upload: '{{ if index .Env "HOMEBREW_TAP_TOKEN" }}false{{ else }}true{{ end }}'
+    skip_upload: '{{ if .Env.HOMEBREW_TAP_KEY_PATH }}false{{ else }}true{{ end }}'
     repository:
       owner: lvcas-dotcom
       name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+      git:
+        url: git@github.com:lvcas-dotcom/homebrew-tap.git
+        private_key: "{{ .Env.HOMEBREW_TAP_KEY_PATH }}"
     homepage: https://github.com/lvcas-dotcom/pgfathom
     description: Discovers and validates PostgreSQL relationships that exist in the data but were never declared
+    # Os binários não são assinados, e o macOS recusa binário baixado em
+    # quarentena com uma mensagem sobre desenvolvedor não verificado. Sem este
+    # hook o cask instala e não roda. Removê-lo contorna uma verificação do
+    # sistema, e é por isso que o cask diz isso em voz alta, aqui e no caveat: a
+    # solução de raiz é assinar e notarizar, que exige conta de desenvolvedor
+    # Apple e ainda não existe.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/pgfathom"]
+          end
+    # Uma linha só, e não é preferência de estilo: o goreleaser envolve cada
+    # linha deste campo em aspas dentro de um `caveats do ... end`, e um bloco
+    # Ruby devolve apenas a última expressão. Quebrado em quatro linhas, o
+    # usuário lê a última frase e nada do aviso — que é justamente a parte que
+    # não pode desaparecer.
+    caveats: "The binaries are not signed or notarised, so this cask clears the macOS quarantine attribute on install. That bypasses a Gatekeeper check, and you should know that it does. Verify what you got against the checksums published with the release."
 
 release:
   prerelease: auto

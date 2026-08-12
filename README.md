@@ -430,6 +430,16 @@ check it against the `checksums.txt` published beside it. The artifacts are not
 signed; the checksum file is what exists today, and
 [`docs/RELEASING.md`](docs/RELEASING.md) says so where it can be found.
 
+On macOS, Homebrew works once the tap exists:
+
+```console
+$ brew install lvcas-dotcom/tap/pgfathom
+```
+
+That is a cask, so it is macOS only, and it clears the quarantine attribute on
+install because the binaries are not notarised — the cask says so when you
+install it, and [`docs/RELEASING.md`](docs/RELEASING.md) explains why.
+
 There is also a container image, on a base that carries root certificates
 because the tool opens a TLS connection to your server:
 

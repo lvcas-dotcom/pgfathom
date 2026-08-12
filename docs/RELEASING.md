@@ -9,11 +9,20 @@ abaixo existe para que a etapa que menos perdoa — a tag — seja a última.
 
 Duas coisas moram fora deste repositório e ninguém as cria a partir daqui.
 
-**O tap do Homebrew.** Precisa existir um repositório `lvcas-dotcom/homebrew-tap`
-e um token com permissão de escrita nele, guardado como o segredo
-`HOMEBREW_TAP_TOKEN` deste repositório. Enquanto não existirem, o release sai
-completo com um canal a menos: a configuração pula o envio em vez de falhar
-depois de já ter publicado binário.
+**O tap do Homebrew.** Precisa existir um repositório público
+`lvcas-dotcom/homebrew-tap`, com pelo menos um commit — repositório sem branch
+padrão não tem onde o goreleaser escrever, e ele falharia no último passo. O
+prefixo `homebrew-` no nome é o que faz `brew` resolver `lvcas-dotcom/tap`.
+
+A escrita vai por **deploy key**, não por token de usuário: uma chave SSH com
+permissão de escrita naquele repositório e em nenhum outro, que não autentica
+como ninguém e não vence. A metade pública é registrada como deploy key no
+`homebrew-tap`; a privada vira o segredo `HOMEBREW_TAP_DEPLOY_KEY` deste
+repositório. Enquanto não existirem, o release sai completo com um canal a
+menos: a configuração pula o envio em vez de falhar depois de já ter publicado
+binário.
+
+O cask é **só macOS** — Homebrew no Linux não instala cask.
 
 **O pacote no ghcr.** A primeira publicação cria o pacote como privado. Depois
 dela, marque-o como público nas configurações do pacote, ou `docker pull` vai
@@ -53,11 +62,18 @@ quem os consuma.
 o mesmo binário que vai nos arquivos, o que é o ponto: compilar de novo
 produziria um artefato diferente do que foi verificado.
 
+**O cask limpa a quarentena do macOS na instalação.** Binário baixado e não
+assinado é recusado na primeira execução com uma mensagem sobre desenvolvedor
+não verificado, e sem isso o cask instalaria sem funcionar. Remover o atributo
+contorna uma verificação do Gatekeeper; o cask diz isso no próprio `caveats`,
+para que quem instala saiba o que aceitou. A solução de raiz é assinar e
+notarizar, que exige conta de desenvolvedor Apple.
+
 ## O que sai
 
 | Canal | O quê |
 |---|---|
 | GitHub Releases | binário para linux, macOS e Windows, em amd64 e arm64, mais `checksums.txt` |
 | `ghcr.io` | imagem multiplataforma sobre `distroless/static`, com certificados raiz e usuário sem privilégio |
-| Homebrew | cask no tap, quando o token existe |
+| Homebrew | cask no tap, só macOS, quando a deploy key existe |
 | `go install` | sempre disponível, e carimba a versão pelo que o toolchain grava |
