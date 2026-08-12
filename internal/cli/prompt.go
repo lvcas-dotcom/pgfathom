@@ -31,6 +31,7 @@ var (
 	selectedStyle = lipgloss.NewStyle().Bold(true)
 	hintStyle     = lipgloss.NewStyle().Faint(true)
 	detailStyle   = lipgloss.NewStyle().Faint(true)
+	errorStyle    = lipgloss.NewStyle().Bold(true)
 )
 
 // Option is one line of a chooser: what it is, and what it means.
@@ -53,11 +54,29 @@ type chooser struct {
 	picked    map[int]bool
 	cancelled bool
 	done      bool
+
+	// height is how many options fit on screen. A list longer than the terminal
+	// scrolls its own top away, taking the title and the first options with it —
+	// and on a server with sixty schemas the first options are the big ones,
+	// which is precisely what the list exists to show.
+	height int
 }
+
+// visibleRows is the fallback when the terminal has not said how tall it is.
+// Small enough to fit anything, and the window keeps the cursor in view.
+const visibleRows = 10
 
 func (m chooser) Init() tea.Cmd { return nil }
 
 func (m chooser) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if size, ok := msg.(tea.WindowSizeMsg); ok {
+		// Seven lines go to the title, the two "more" markers, the hint and the
+		// blank lines around them; the eighth is slack, so the drawing never
+		// reaches the bottom of the terminal and scrolls its own top away.
+		m.height = max(3, size.Height-8)
+		return m, nil
+	}
+
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
@@ -78,19 +97,30 @@ func (m chooser) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursor++
 		}
 
+	case "pgup":
+		m.cursor = max(0, m.cursor-m.window())
+
+	case "pgdown":
+		m.cursor = min(len(m.options)-1, m.cursor+m.window())
+
+	case "home", "g":
+		m.cursor = 0
+
+	case "end", "G":
+		m.cursor = len(m.options) - 1
+
 	case " ":
 		if m.multi {
 			m.picked[m.cursor] = !m.picked[m.cursor]
 		}
 
 	case "enter":
-		if !m.multi {
-			m.picked = map[int]bool{m.cursor: true}
-		}
-		// Accepting nothing in multi mode would compose a command with an empty
-		// scope, which fails later with a worse message than this one.
+		// Enter takes what is ticked, and ticks what is under the cursor when
+		// nothing is. Moving to an item and pressing enter is what people expect
+		// to mean "this one", and a list that answered something else while the
+		// cursor sat somewhere visible would be answering for them.
 		if len(m.chosen()) == 0 {
-			return m, nil
+			m.picked[m.cursor] = true
 		}
 		m.done = true
 		return m, tea.Quit
@@ -99,12 +129,40 @@ func (m chooser) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// window is how many options are drawn at once.
+func (m chooser) window() int {
+	h := m.height
+	if h <= 0 {
+		h = visibleRows
+	}
+	return min(h, len(m.options))
+}
+
+// slice is the range of options to draw, kept around the cursor so it is always
+// on screen.
+func (m chooser) slice() (start, end int) {
+	w := m.window()
+
+	start = m.cursor - w/2
+	start = max(0, start)
+	if start+w > len(m.options) {
+		start = len(m.options) - w
+	}
+	return start, start + w
+}
+
 func (m chooser) View() string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "\n  %s\n\n", titleStyle.Render(m.title))
 
-	for i, o := range m.options {
+	start, end := m.slice()
+	if start > 0 {
+		fmt.Fprintf(&b, "    %s\n", detailStyle.Render(fmt.Sprintf("↑ %d more", start)))
+	}
+
+	for i := start; i < end; i++ {
+		o := m.options[i]
 		cursor := "  "
 		if i == m.cursor {
 			cursor = cursorStyle.Render("❯ ")
@@ -130,9 +188,16 @@ func (m chooser) View() string {
 		b.WriteString("\n")
 	}
 
+	if end < len(m.options) {
+		fmt.Fprintf(&b, "    %s\n", detailStyle.Render(fmt.Sprintf("↓ %d more", len(m.options)-end)))
+	}
+
 	hint := "↑↓ move · enter choose · esc cancel"
 	if m.multi {
 		hint = "↑↓ move · space toggle · enter confirm · esc cancel"
+	}
+	if len(m.options) > m.window() {
+		hint += " · pgup/pgdn page"
 	}
 	fmt.Fprintf(&b, "\n  %s\n", hintStyle.Render(hint))
 
