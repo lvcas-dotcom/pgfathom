@@ -124,9 +124,12 @@ func writeGroups(b *strings.Builder, e Emphasis, r *model.Result) {
 		group := r.CandidatesByVerdict(verdict)
 
 		heading := fmt.Sprintf("%s  (%d)", verdictTitles[verdict], len(group))
-		if verdict == model.VerdictBroken && len(group) > 0 {
+		switch {
+		case verdict == model.VerdictBroken && len(group) > 0:
 			heading = e.Alert(heading)
-		} else {
+		case verdict == model.VerdictConfirmed && len(group) > 0:
+			heading = e.Confirm(heading)
+		default:
 			heading = e.Bold(heading)
 		}
 		fmt.Fprintf(b, "  %s\n", heading)

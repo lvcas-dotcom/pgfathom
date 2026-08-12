@@ -8,6 +8,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/lvcas-dotcom/pgfathom/internal/report"
 )
 
 // errCancelled is the user pressing ctrl-c or esc. It is not a failure: they
@@ -25,13 +27,31 @@ func runPrompt(m tea.Model) (tea.Model, error) {
 	return p.Run()
 }
 
+// The guide is painted in the project's palette, and lipgloss is what makes
+// that safe here: it knows whether the terminal is light or dark, so bone —
+// which is paper on paper against a white background — can have a dark
+// counterpart. The report cannot do this, because it must render identically
+// whatever it is pointed at. Here there is a person looking, so it is worth it.
+//
+// The roles match the report's, so the same colour means the same thing all the
+// way through: red is where attention goes, aqua is something settled, stone is
+// what supports without competing.
 var (
-	titleStyle    = lipgloss.NewStyle().Bold(true)
-	cursorStyle   = lipgloss.NewStyle().Bold(true)
-	selectedStyle = lipgloss.NewStyle().Bold(true)
-	hintStyle     = lipgloss.NewStyle().Faint(true)
-	detailStyle   = lipgloss.NewStyle().Faint(true)
-	errorStyle    = lipgloss.NewStyle().Bold(true)
+	ink   = lipgloss.AdaptiveColor{Light: report.BrandInk, Dark: report.BrandBone}
+	red   = lipgloss.Color(report.BrandRed)
+	aqua  = lipgloss.Color(report.BrandAqua)
+	stone = lipgloss.Color(report.BrandStone)
+)
+
+var (
+	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(ink)
+	cursorStyle   = lipgloss.NewStyle().Bold(true).Foreground(red)
+	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(ink)
+	tickStyle     = lipgloss.NewStyle().Bold(true).Foreground(aqua)
+	hintStyle     = lipgloss.NewStyle().Foreground(stone)
+	detailStyle   = lipgloss.NewStyle().Foreground(stone)
+	errorStyle    = lipgloss.NewStyle().Bold(true).Foreground(red)
+	answerStyle   = lipgloss.NewStyle().Foreground(aqua)
 )
 
 // Option is one line of a chooser: what it is, and what it means.
@@ -170,9 +190,9 @@ func (m chooser) View() string {
 
 		mark := ""
 		if m.multi {
-			mark = "[ ] "
+			mark = detailStyle.Render("[ ] ")
 			if m.picked[i] {
-				mark = selectedStyle.Render("[x] ")
+				mark = tickStyle.Render("[x] ")
 			}
 		}
 
@@ -303,11 +323,11 @@ func (m line) View() string {
 
 	fmt.Fprintf(&b, "\n  %s\n\n", titleStyle.Render(m.title))
 
-	shown := m.value
-	if shown == "" && m.placeholder != "" {
+	shown := answerStyle.Render(m.value)
+	if m.value == "" && m.placeholder != "" {
 		shown = detailStyle.Render(m.placeholder)
 	}
-	fmt.Fprintf(&b, "  ❯ %s█\n", shown)
+	fmt.Fprintf(&b, "  %s%s%s\n", cursorStyle.Render("❯ "), shown, cursorStyle.Render("█"))
 
 	if m.hint != "" {
 		fmt.Fprintf(&b, "\n  %s\n", hintStyle.Render(m.hint))

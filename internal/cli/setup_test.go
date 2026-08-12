@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/lvcas-dotcom/pgfathom/internal/report"
 )
 
 // TestPlanComposesWhatWasAnswered is the guide's central promise: the command
@@ -195,5 +198,17 @@ func TestEnterKeepsWhatWasTicked(t *testing.T) {
 
 	if chosen := got.chosen(); len(chosen) != 2 || chosen[0] != 0 || chosen[1] != 1 {
 		t.Errorf("chose %v, want the two ticked ones and not the cursor", chosen)
+	}
+}
+
+// TestBannerNeverReachesANonTerminal is the same discipline the report and the
+// progress line follow, applied to the one piece of output that is pure
+// decoration: a logo in the middle of a redirected stream is corruption.
+func TestBannerNeverReachesANonTerminal(t *testing.T) {
+	var b bytes.Buffer
+	Banner(&b, report.FullEmphasis, "a tagline")
+
+	if b.Len() != 0 {
+		t.Errorf("a buffer is not a terminal; nothing may be written, got %q", b.String())
 	}
 }

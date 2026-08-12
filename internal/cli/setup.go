@@ -101,6 +101,8 @@ func runSetup(ctx context.Context, streams *Streams, root *cobra.Command) error 
 			"setup needs an interactive terminal; run `pgfathom discover --help` for the flags directly"))
 	}
 
+	Banner(streams.Err, streams.Emphasis(), "let's find what your schema never declared")
+
 	p, err := composePlan(ctx, streams)
 	if err != nil {
 		if errors.Is(err, errCancelled) {
@@ -146,7 +148,8 @@ func composePlan(ctx context.Context, streams *Streams) (plan, error) {
 	}
 	defer pool.Close()
 
-	_, _ = fmt.Fprintf(streams.Err, "\n  connected to PostgreSQL %s\n", pool.ServerVersion())
+	_, _ = fmt.Fprintf(streams.Err, "\n  %s %s\n",
+		tickStyle.Render("✓"), detailStyle.Render("connected to PostgreSQL "+pool.ServerVersion()))
 
 	if err := askScope(ctx, pool, &p); err != nil {
 		return p, err
@@ -174,7 +177,7 @@ func connectWithRetries(ctx context.Context, streams *Streams, p *plan) (*db.Poo
 			return pool, nil
 		}
 
-		_, _ = fmt.Fprintf(streams.Err, "\n  %s\n", errorStyle.Render("could not connect"))
+		_, _ = fmt.Fprintf(streams.Err, "\n  %s\n", errorStyle.Render("✗ could not connect"))
 		_, _ = fmt.Fprintf(streams.Err, "  %s\n\n", detailStyle.Render(err.Error()))
 		_, _ = fmt.Fprintf(streams.Err, "  %s\n", detailStyle.Render(
 			"This command never asks for a password: it relies on ~/.pgpass, or on "+dsnEnv+"."))

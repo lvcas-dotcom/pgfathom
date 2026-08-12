@@ -90,5 +90,5 @@ func runAudit(ctx context.Context, streams *Streams, opts *auditOptions) error {
 	if opts.format == formatJSON {
 		return report.JSON(streams.Out, result)
 	}
-	return report.Terminal(streams.Out, result, report.Emphasis(streams.Color()))
+	return report.Terminal(streams.Out, result, streams.Emphasis())
 }
