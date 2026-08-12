@@ -48,7 +48,13 @@ pedir autenticação a quem só quer experimentar.
 
 6. O workflow roda suíte, lint e build cruzado, e só então publica. Acompanhe
    até o fim: uma falha depois da metade deixa artefatos parciais, e a resposta
-   certa é corrigir e lançar `v0.1.1`, nunca reescrever a tag.
+   certa é corrigir e lançar a versão seguinte, nunca reescrever a tag.
+
+Duas tags no mesmo commit é o caso normal quando o candidato passa e nada muda
+depois — e o workflow passa `GORELEASER_CURRENT_TAG` por causa disso. Sem essa
+variável, a versão sai de `git describe`, que escolhe entre as tags do commit e
+pode escolher o candidato: foi assim que o release de `v0.1.0` tentou publicar
+como `v0.1.0-rc.2` e morreu em asset já existente.
 
 ## O que o release não oferece
 
