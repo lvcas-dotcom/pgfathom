@@ -1,6 +1,7 @@
 package profile_test
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 
@@ -60,6 +61,16 @@ func TestDetectsSuffixFromDeclaredKeys(t *testing.T) {
 	}
 	if d.DeclaredKeys != 3 {
 		t.Errorf("DeclaredKeys = %d, want 3", d.DeclaredKeys)
+	}
+
+	suffix := d.ColumnSuffixes[0]
+	if len(suffix.Examples) == 0 {
+		t.Fatal("Examples is empty, want the qualified columns the suffix was read from")
+	}
+	for _, ex := range suffix.Examples {
+		if !slices.Contains([]string{"imovel.lote_idkey", "imovel.bairro_idkey", "imovel.logradouro_idkey"}, ex) {
+			t.Errorf("Examples contains %q, want one of the declared FK columns on imovel", ex)
+		}
 	}
 }
 
@@ -224,6 +235,77 @@ func TestDetectionRecoversTheRealCase(t *testing.T) {
 
 	if _, ok := detected.Match(detected.EntityName("lote_idkey"), "lote"); !ok {
 		t.Error("after detection, lote_idkey should reach lote")
+	}
+}
+
+// TestDetectsPrimaryKeyNameConvention is what lets audit propose a synthetic
+// column name without asking: the schema already names its PK the same way
+// in almost every table that has one.
+func TestDetectsPrimaryKeyNameConvention(t *testing.T) {
+	p := mustLoad(t, "pt-br")
+
+	d := p.Detect(schemaOf(
+		table("lote"), table("bairro"), table("logradouro"), table("operador"),
+	))
+
+	if len(d.PrimaryKeyNames) == 0 || d.PrimaryKeyNames[0].Affix != "idkey" {
+		t.Fatalf("PrimaryKeyNames = %+v, want idkey first", d.PrimaryKeyNames)
+	}
+	if d.PrimaryKeyNames[0].Occurrences != 4 || d.PrimaryKeyNames[0].Share != 1 {
+		t.Errorf("PrimaryKeyNames[0] = %+v, want 4 occurrences at share 1.0", d.PrimaryKeyNames[0])
+	}
+	if d.SinglePKTables != 4 {
+		t.Errorf("SinglePKTables = %d, want 4", d.SinglePKTables)
+	}
+
+	want := map[string]bool{"lote": true, "bairro": true, "logradouro": true, "operador": true}
+	examples := d.PrimaryKeyNames[0].Examples
+	if len(examples) == 0 {
+		t.Fatal("Examples is empty, want the tables idkey was read from")
+	}
+	for _, ex := range examples {
+		if !want[ex] {
+			t.Errorf("Examples contains %q, want one of the four fixture tables", ex)
+		}
+	}
+}
+
+// TestNamingExamplesAreCapped proves a convention shared by far more tables
+// than the cap still reports every occurrence, but only a handful of
+// examples — the whole point of a citation is to be checkable, not to
+// reproduce the schema.
+func TestNamingExamplesAreCapped(t *testing.T) {
+	p := mustLoad(t, "pt-br")
+
+	tables := make([]model.Table, 0, 10)
+	for i := 0; i < 10; i++ {
+		tables = append(tables, table(fmt.Sprintf("tabela_%d", i)))
+	}
+
+	d := p.Detect(schemaOf(tables...))
+
+	if d.PrimaryKeyNames[0].Occurrences != 10 {
+		t.Errorf("Occurrences = %d, want 10: the cap must not shrink the count", d.PrimaryKeyNames[0].Occurrences)
+	}
+	if len(d.PrimaryKeyNames[0].Examples) != model.MaxNamingExamples {
+		t.Errorf("len(Examples) = %d, want exactly %d", len(d.PrimaryKeyNames[0].Examples), model.MaxNamingExamples)
+	}
+}
+
+// TestDetectsNoPrimaryKeyNameWithoutAnyKey guards the population-zero path:
+// no table with a PK must never mean a divide-by-zero, it must mean nothing
+// detected.
+func TestDetectsNoPrimaryKeyNameWithoutAnyKey(t *testing.T) {
+	p := mustLoad(t, "pt-br")
+
+	noPK := model.Table{Schema: "public", Name: "staging_import", Columns: []model.Column{{Name: "raw", BaseType: "text"}}}
+	d := p.Detect(schemaOf(noPK))
+
+	if len(d.PrimaryKeyNames) != 0 {
+		t.Errorf("PrimaryKeyNames = %+v, want none", d.PrimaryKeyNames)
+	}
+	if d.SinglePKTables != 0 {
+		t.Errorf("SinglePKTables = %d, want 0", d.SinglePKTables)
 	}
 }
 

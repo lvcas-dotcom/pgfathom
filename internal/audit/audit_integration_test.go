@@ -38,7 +38,7 @@ func run(t *testing.T, fixture string) *model.Result {
 	result := model.NewResult("integration", "", time.Unix(0, 0).UTC(), cat.Coverage)
 	result.ServerVersion = pool.ServerVersion()
 	result.Schemas = cat.Schemas
-	result.Findings = audit.Findings(cat.Schemas)
+	result.Findings = audit.Findings(cat.Schemas, audit.Options{})
 	return result
 }
 

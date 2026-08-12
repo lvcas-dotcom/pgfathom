@@ -185,7 +185,7 @@ type Table struct {
     Name        string
     Columns     []Column
     PrimaryKey  []string        // nomes de coluna, em ordem
-    Uniques     [][]string
+    Uniques     []UniqueConstraint
     ForeignKeys []ForeignKey    // apenas as DECLARADAS
     Indexes     []Index
     Stats       TableStats

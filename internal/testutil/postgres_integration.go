@@ -64,6 +64,45 @@ func PostgresImageDSN(t *testing.T, image, fixture string) string {
 	return dsn
 }
 
+// TryPostgresImageDSN is PostgresImageDSN, but skips the test instead of
+// failing it when the image cannot be pulled or the container cannot start.
+// It exists for a fixture that depends on an image not every environment can
+// reach — pgvector's, in particular, which is not cached wherever the
+// standard postgres image already is.
+func TryPostgresImageDSN(t *testing.T, image, fixture string) (string, bool) {
+	t.Helper()
+
+	ctx := context.Background()
+
+	container, err := postgres.Run(ctx, image,
+		postgres.WithDatabase("pgfathom_test"),
+		postgres.WithUsername("pgfathom_test"),
+		postgres.WithPassword("pgfathom_test"),
+		postgres.WithInitScripts(fixturePath(t, fixture)),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).
+				WithStartupTimeout(2*time.Minute),
+		),
+	)
+	if err != nil {
+		t.Logf("starting PostgreSQL image %s: %v", image, err)
+		return "", false
+	}
+
+	t.Cleanup(func() {
+		if err := testcontainers.TerminateContainer(container); err != nil {
+			t.Logf("terminating container: %v", err)
+		}
+	})
+
+	dsn, err := container.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("resolving connection string: %v", err)
+	}
+	return dsn, true
+}
+
 // fixturePath resolves a fixture against this package's source directory, not
 // against the working directory.
 //

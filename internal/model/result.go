@@ -5,7 +5,10 @@ import "time"
 // SchemaVersion is the version of the JSON contract this build emits. The
 // serialized model is a public API — the CI baseline and third-party tooling
 // consume it — so any incompatible change requires incrementing this.
-const SchemaVersion = "1"
+//
+// 2 added Finding.Suggestion, additive but signaling that a Finding may now
+// carry a remediation proposal.
+const SchemaVersion = "2"
 
 // Result is a complete analysis run.
 type Result struct {

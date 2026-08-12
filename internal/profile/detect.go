@@ -21,22 +21,51 @@ const (
 	minRefAffixCount    = 3
 	minTablePrefixShare = 0.10
 	minTablePrefixCount = 3
+	minPKNameShare      = 0.15
+	minPKNameCount      = 3
 )
+
+// namingAccumulator counts occurrences of a candidate affix or name and keeps
+// a few example objects to back it. Examples are capped as they accumulate,
+// not trimmed afterward — a schema with thousands of tables never grows one
+// past a handful of short strings.
+type namingAccumulator struct {
+	count    int
+	examples []string
+}
+
+func accumulate(m map[string]*namingAccumulator, key, example string) {
+	a, ok := m[key]
+	if !ok {
+		a = &namingAccumulator{}
+		m[key] = a
+	}
+	a.count++
+	if len(a.examples) < model.MaxNamingExamples {
+		a.examples = append(a.examples, example)
+	}
+}
 
 // Detect derives naming conventions from a schema, using only what the catalog
 // read already produced. It issues no queries and reads no data.
 func (p *Profile) Detect(schemas []model.Schema) model.NamingDetection {
 	d := model.NamingDetection{Enabled: true}
 
-	suffixes, prefixes := map[string]int{}, map[string]int{}
-	tablePrefixes := map[string]int{}
+	suffixes, prefixes := map[string]*namingAccumulator{}, map[string]*namingAccumulator{}
+	tablePrefixes := map[string]*namingAccumulator{}
+	pkNames := map[string]*namingAccumulator{}
 
 	for _, s := range schemas {
 		for _, t := range s.Tables {
 			d.Tables++
 
 			for _, prefix := range candidateTablePrefixes(t.Name) {
-				tablePrefixes[prefix]++
+				accumulate(tablePrefixes, prefix, t.Name)
+			}
+
+			if t.HasSingleColumnPK() {
+				d.SinglePKTables++
+				accumulate(pkNames, strings.ToLower(strings.TrimSpace(t.PrimaryKey[0])), t.Name)
 			}
 
 			for _, fk := range t.ForeignKeys {
@@ -49,11 +78,12 @@ func (p *Profile) Detect(schemas []model.Schema) model.NamingDetection {
 				if !ok {
 					continue
 				}
+				example := t.Name + "." + fk.Columns[0]
 				if suffix != "" {
-					suffixes[suffix]++
+					accumulate(suffixes, suffix, example)
 				}
 				if prefix != "" {
-					prefixes[prefix]++
+					accumulate(prefixes, prefix, example)
 				}
 			}
 		}
@@ -62,6 +92,7 @@ func (p *Profile) Detect(schemas []model.Schema) model.NamingDetection {
 	d.ColumnSuffixes = rank(suffixes, d.DeclaredKeys, minRefAffixShare, minRefAffixCount)
 	d.ColumnPrefixes = rank(prefixes, d.DeclaredKeys, minRefAffixShare, minRefAffixCount)
 	d.TablePrefixes = rank(tablePrefixes, d.Tables, minTablePrefixShare, minTablePrefixCount)
+	d.PrimaryKeyNames = rank(pkNames, d.SinglePKTables, minPKNameShare, minPKNameCount)
 
 	return d
 }
@@ -119,18 +150,18 @@ func isSeparator(r rune) bool {
 }
 
 // rank keeps the candidates frequent enough to be a convention, strongest first.
-func rank(counts map[string]int, population int, minShare float64, minCount int) []model.NamingEvidence {
+func rank(counts map[string]*namingAccumulator, population int, minShare float64, minCount int) []model.NamingEvidence {
 	if population <= 0 {
 		return nil
 	}
 
 	out := make([]model.NamingEvidence, 0, len(counts))
-	for affix, n := range counts {
-		share := float64(n) / float64(population)
-		if n < minCount || share < minShare {
+	for affix, a := range counts {
+		share := float64(a.count) / float64(population)
+		if a.count < minCount || share < minShare {
 			continue
 		}
-		out = append(out, model.NamingEvidence{Affix: affix, Occurrences: n, Share: share})
+		out = append(out, model.NamingEvidence{Affix: affix, Occurrences: a.count, Share: share, Examples: a.examples})
 	}
 
 	sort.Slice(out, func(i, j int) bool {

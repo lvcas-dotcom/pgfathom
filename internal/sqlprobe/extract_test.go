@@ -8,7 +8,14 @@ import (
 
 func joins(t *testing.T, sql string) []rawJoin {
 	t.Helper()
-	return extract(sql)
+	j, _ := extract(sql)
+	return j
+}
+
+func predicates(t *testing.T, sql string) []rawPredicate {
+	t.Helper()
+	_, p := extract(sql)
+	return p
 }
 
 func pair(lt, lc, rt, rc string) rawJoin {
@@ -75,10 +82,21 @@ func TestMultipleJoinsAllExtracted(t *testing.T) {
 
 // TestEqualityAgainstLiteralIsNotEvidence pins the bare-column rule: without a
 // qualifier there is no table to resolve, and p.status_id = 3 is a filter, not
-// a join.
+// a join. It is still predicate evidence: an equality filter is a hot-column
+// signal in its own right.
 func TestEqualityAgainstLiteralIsNotEvidence(t *testing.T) {
-	if got := joins(t, `SELECT 1 FROM pedido p WHERE p.status_id = 3 AND p.tipo = 'x'`); len(got) != 0 {
+	sql := `SELECT 1 FROM pedido p WHERE p.status_id = 3 AND p.tipo = 'x'`
+
+	if got := joins(t, sql); len(got) != 0 {
 		t.Errorf("joins = %+v, want none", got)
+	}
+
+	want := []rawPredicate{
+		{ref: rawRef{table: "pedido", column: "status_id"}, op: predEquality},
+		{ref: rawRef{table: "pedido", column: "tipo"}, op: predEquality},
+	}
+	if diff := cmp.Diff(want, predicates(t, sql), cmp.AllowUnexported(rawPredicate{}, rawRef{})); diff != "" {
+		t.Errorf("predicates mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -124,6 +142,18 @@ func TestOtherOperatorsAreNotEquality(t *testing.T) {
 	if got := joins(t, sql); len(got) != 0 {
 		t.Errorf("joins = %+v, want none: <=, >=, != and <> are not equality", got)
 	}
+
+	// Each left-hand qualified column still produces range predicate evidence,
+	// which is what a hot-column recommendation needs even when no join formed.
+	preds := predicates(t, sql)
+	if len(preds) != 4 {
+		t.Fatalf("predicates = %+v, want 4 range predicates", preds)
+	}
+	for _, p := range preds {
+		if p.op != predRange {
+			t.Errorf("predicate %+v: op = %v, want predRange", p, p.op)
+		}
+	}
 }
 
 func TestStatementsDoNotShareAliases(t *testing.T) {
@@ -150,8 +180,9 @@ func TestMalformedSQLYieldsNothingAndNoPanic(t *testing.T) {
 		"合同 JOIN ON = 数据",
 	}
 	for _, sql := range cases {
-		if got := extract(sql); len(got) != 0 {
-			t.Errorf("extract(%q) = %+v, want nothing", sql, got)
+		j, p := extract(sql)
+		if len(j) != 0 || len(p) != 0 {
+			t.Errorf("extract(%q) = joins %+v, predicates %+v, want nothing", sql, j, p)
 		}
 	}
 }
@@ -188,5 +219,95 @@ func TestServerReconstructedViewShape(t *testing.T) {
 	}
 	if diff := cmp.Diff(want, joins(t, sql), cmp.AllowUnexported(rawJoin{}, rawRef{})); diff != "" {
 		t.Errorf("joins mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestPredicateContainmentIsClassified covers the jsonb/array operators GIN
+// serves and btree does not.
+func TestPredicateContainmentIsClassified(t *testing.T) {
+	cases := []struct {
+		sql string
+		op  predOp
+	}{
+		{`SELECT 1 FROM t WHERE t.dados @> '{"a":1}'::jsonb`, predContainment},
+		{`SELECT 1 FROM t WHERE t.tags <@ '{"a","b"}'::text[]`, predContainment},
+		{`SELECT 1 FROM t WHERE t.dados ? 'chave'`, predContainment},
+		{`SELECT 1 FROM t WHERE t.dados ?| array['a','b']`, predContainment},
+		{`SELECT 1 FROM t WHERE t.dados ?& array['a','b']`, predContainment},
+		{`SELECT 1 FROM t WHERE t.busca @@ to_tsquery('portuguese', 'x')`, predFullText},
+	}
+
+	for _, c := range cases {
+		got := predicates(t, c.sql)
+		if len(got) != 1 || got[0].op != c.op {
+			t.Errorf("predicates(%q) = %+v, want one predicate with op %v", c.sql, got, c.op)
+		}
+	}
+}
+
+// TestPredicateLikeDistinguishesPrefixFromInfix pins the distinction that
+// drives the trigram-index recommendation: an infix wildcard defeats a
+// leading-anchored btree scan, a prefix pattern does not.
+func TestPredicateLikeDistinguishesPrefixFromInfix(t *testing.T) {
+	sql := `SELECT 1 FROM t WHERE t.nome LIKE '%silva%' AND t.cod ILIKE 'ABC%'`
+
+	got := predicates(t, sql)
+	want := []rawPredicate{
+		{ref: rawRef{table: "t", column: "nome"}, op: predLikeInfix},
+		{ref: rawRef{table: "t", column: "cod"}, op: predLikePrefix},
+	}
+	if diff := cmp.Diff(want, got, cmp.AllowUnexported(rawPredicate{}, rawRef{})); diff != "" {
+		t.Errorf("predicates mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestPredicateLikeWithUnseenRightHandSideDefaultsToPrefix covers a pattern
+// the extractor cannot read — a parameter or a function call — which must
+// never be guessed as infix.
+func TestPredicateLikeWithUnseenRightHandSideDefaultsToPrefix(t *testing.T) {
+	sql := `SELECT 1 FROM t WHERE t.nome LIKE upper('x')`
+
+	got := predicates(t, sql)
+	if len(got) != 1 || got[0].op != predLikePrefix {
+		t.Errorf("predicates = %+v, want one predLikePrefix", got)
+	}
+}
+
+// TestPredicateVectorDistanceIsClassified covers pgvector's nearest-neighbor
+// operators.
+func TestPredicateVectorDistanceIsClassified(t *testing.T) {
+	for _, op := range []string{"<->", "<=>", "<#>"} {
+		sql := `SELECT 1 FROM t ORDER BY t.embedding ` + op + ` '[1,2,3]' LIMIT 10`
+		got := predicates(t, sql)
+		if len(got) != 1 || got[0].op != predVectorDistance {
+			t.Errorf("predicates(%q) = %+v, want one predVectorDistance", sql, got)
+		}
+	}
+}
+
+// TestUnrecognizedOperatorProducesNoPredicateAndNoPanic pins the extractor's
+// central contract: an operator it does not classify is ignored, never
+// guessed, and never a crash.
+func TestUnrecognizedOperatorProducesNoPredicateAndNoPanic(t *testing.T) {
+	sql := `SELECT 1 FROM t WHERE t.nome ~ '^abc' AND t.nome !~ 'xyz'`
+	if got := predicates(t, sql); len(got) != 0 {
+		t.Errorf("predicates = %+v, want none for an unrecognized operator", got)
+	}
+}
+
+// TestJoinExtractionIsUnaffectedByPredicateExtraction pins the requirement
+// that the existing join contract does not change now that predicates are
+// extracted alongside it.
+func TestJoinExtractionIsUnaffectedByPredicateExtraction(t *testing.T) {
+	sql := `SELECT 1 FROM pedido p JOIN cliente c ON p.cliente_id = c.id WHERE p.valor > 100`
+
+	wantJoins := []rawJoin{pair("pedido", "cliente_id", "cliente", "id")}
+	if diff := cmp.Diff(wantJoins, joins(t, sql), cmp.AllowUnexported(rawJoin{}, rawRef{})); diff != "" {
+		t.Errorf("joins mismatch (-want +got):\n%s", diff)
+	}
+
+	wantPreds := []rawPredicate{{ref: rawRef{table: "pedido", column: "valor"}, op: predRange}}
+	if diff := cmp.Diff(wantPreds, predicates(t, sql), cmp.AllowUnexported(rawPredicate{}, rawRef{})); diff != "" {
+		t.Errorf("predicates mismatch (-want +got):\n%s", diff)
 	}
 }

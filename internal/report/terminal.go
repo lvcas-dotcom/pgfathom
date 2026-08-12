@@ -21,6 +21,8 @@ var findingTitles = map[model.FindingKind]string{
 	model.FindingNotValidConstraint: "NOT VALID — declared, never verified against existing rows",
 	model.FindingFKWithoutIndex:     "UNINDEXED — foreign key with no index on the child side",
 	model.FindingOrphanReference:    "DANGLING — reference to a table that no longer exists",
+	model.FindingMissingPrimaryKey:  "NO PRIMARY KEY — no row identity, sequential scans on every per-row write",
+	model.FindingUnindexedHotColumn: "HOT COLUMN — named repeatedly in real predicates, no index leading it",
 }
 
 // Terminal writes the audit result as a grouped table.
@@ -98,11 +100,53 @@ func writeFindings(b *strings.Builder, e Emphasis, findings []model.Finding) {
 
 		tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)
 		for _, f := range group {
-			writeRow(tw, f.Object, formatMetrics(f.Metrics))
+			writeRow(tw, f.Object, formatMetrics(f.Metrics), formatSuggestion(f.Suggestion))
 		}
 		_ = tw.Flush()
 		b.WriteString("\n")
 	}
+}
+
+// formatSuggestion renders a finding's remediation, when it has one, as a
+// single cell: object names, a method, a probe verdict — never a value read
+// from a table.
+func formatSuggestion(s *model.Suggestion) string {
+	if s == nil {
+		return ""
+	}
+
+	var parts []string
+	switch s.Kind {
+	case model.SuggestPromoteUnique:
+		parts = append(parts, "promote UNIQUE("+strings.Join(s.Columns, ", ")+") to primary key")
+	case model.SuggestCreatePrimaryKey:
+		if len(s.Columns) > 0 {
+			parts = append(parts, "candidate key ("+strings.Join(s.Columns, ", ")+")")
+		} else {
+			parts = append(parts, "candidate key not yet probed")
+		}
+	case model.SuggestSyntheticPrimaryKey:
+		parts = append(parts, "create synthetic column "+strings.Join(s.Columns, ", ")+" as primary key")
+	case model.SuggestCreateIndex:
+		method := s.IndexMethod
+		if method == "" {
+			method = "btree"
+		}
+		column := strings.Join(s.Columns, ", ")
+		if s.IndexOpclass != "" {
+			column += " " + s.IndexOpclass
+		}
+		parts = append(parts, fmt.Sprintf("create index using %s (%s)", method, column))
+	}
+
+	if s.KeyProbe != "" {
+		parts = append(parts, string(s.KeyProbe))
+	}
+	if s.Note != "" {
+		parts = append(parts, s.Note)
+	}
+
+	return strings.Join(parts, "; ")
 }
 
 func formatMetrics(m map[string]int64) string {
@@ -174,6 +218,14 @@ func writeCoverage(b *strings.Builder, e Emphasis, c model.Coverage) {
 		fmt.Fprintf(b, "  %s\n", e.Warn(fmt.Sprintf(
 			"! only %.0f%% of the table scope was analyzed — every conclusion in this "+
 				"report covers that fraction, not the schema", 100*c.AnalyzedShare())))
+	}
+
+	if len(c.KeyProbesSkipped) > 0 {
+		names := make([]string, len(c.KeyProbesSkipped))
+		for i, s := range c.KeyProbesSkipped {
+			names[i] = s.Table
+		}
+		writeSkipped(b, "missing-key candidates not probed against data", names)
 	}
 
 	// The prefilter line distinguishes "I looked and dropped nothing" from "I

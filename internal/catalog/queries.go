@@ -151,3 +151,9 @@ const queryStatsReset = `
 SELECT stats_reset
   FROM pg_stat_database
  WHERE datname = current_database()`
+
+// queryExtensions lists installed extensions, so an index method recommendation
+// can be gated on pg_trgm or pgvector actually being present instead of guessed.
+const queryExtensions = `
+SELECT extname
+  FROM pg_extension`

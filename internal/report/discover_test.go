@@ -178,6 +178,27 @@ func TestDetectionIsReported(t *testing.T) {
 	}
 }
 
+// TestDetectionCitesExamples proves a detected convention names the objects
+// it was read from, not just a count and a percentage — a reader has to be
+// able to check the claim against the schema.
+func TestDetectionCitesExamples(t *testing.T) {
+	v := discoverView(nil, nil, false)
+	v.Detection = model.NamingDetection{
+		Enabled: true,
+		ColumnSuffixes: []model.NamingEvidence{
+			{Affix: "_idkey", Occurrences: 102, Share: 0.22, Examples: []string{"imovel.lote_idkey", "pedido.cliente_idkey"}},
+		},
+		DeclaredKeys: 470,
+		Tables:       338,
+	}
+
+	out := renderDiscover(t, v)
+
+	if !strings.Contains(out, "imovel.lote_idkey") || !strings.Contains(out, "pedido.cliente_idkey") {
+		t.Errorf("the examples backing the convention must be named:\n%s", out)
+	}
+}
+
 func TestDetectionOffIsStated(t *testing.T) {
 	out := renderDiscover(t, discoverView(nil, nil, false))
 

@@ -21,9 +21,11 @@ import (
 // rather than accumulating. Comparing two runs is the point; a directory that
 // grows a timestamped file per execution makes that harder, not easier.
 const (
-	FileConfirmed = "confirmed.sql"
-	FileBroken    = "broken.sql"
-	FileNotValid  = "not_valid.sql"
+	FileConfirmed        = "confirmed.sql"
+	FileBroken           = "broken.sql"
+	FileNotValid         = "not_valid.sql"
+	FileSuggestedKeys    = "suggested_keys.sql"
+	FileSuggestedIndexes = "suggested_indexes.sql"
 )
 
 // maxIdentifierBytes is NAMEDATALEN-1. The server truncates past this without
@@ -54,13 +56,19 @@ func DiscoverArtifacts(r *model.Result) []Artifact {
 }
 
 // AuditArtifacts renders the SQL for the structural audit: the validation of
-// every constraint the catalog carries as NOT VALID.
+// every constraint the catalog carries as NOT VALID, the primary keys the
+// catalog or a full-scan probe supports, and the indexes real code repeatedly
+// asks for and does not have.
 func AuditArtifacts(r *model.Result) []Artifact {
 	h := newHeader(r)
 	pending := notValidKeys(r.Schemas)
+	keysContent, keysCount := suggestedKeysFile(h, r.Schemas, r.Findings)
+	indexesContent, indexesCount := suggestedIndexesFile(h, r.Schemas, r.Findings)
 
 	return []Artifact{
 		{Name: FileNotValid, Count: len(pending), Content: notValidFile(h, pending)},
+		{Name: FileSuggestedKeys, Count: keysCount, Content: keysContent},
+		{Name: FileSuggestedIndexes, Count: indexesCount, Content: indexesContent},
 	}
 }
 
@@ -317,6 +325,232 @@ WHERE %s
 		strings.Join(notNull, "\n  AND "),
 		identTable(p.fk.RefSchema, p.fk.RefTable),
 		strings.Join(match, " AND "))
+}
+
+// suggestedKeysFile renders the primary keys the catalog or a full-scan probe
+// supports. Only a confirmed suggestion produces DDL: an unconfirmed one has
+// no columns to act on, the same rule the terminal renderer follows.
+func suggestedKeysFile(h header, schemas []model.Schema, findings []model.Finding) (string, int) {
+	var b strings.Builder
+	h.render(&b, "primary keys the catalog or a full-scan probe supports")
+
+	var written int
+	for _, f := range findings {
+		if f.Kind != model.FindingMissingPrimaryKey || f.Suggestion == nil {
+			continue
+		}
+
+		table, ok := tableByRef(schemas, f.Object)
+		if !ok {
+			continue
+		}
+
+		s := f.Suggestion
+		switch {
+		case s.Kind == model.SuggestPromoteUnique:
+			u, ok := table.PromotableUnique()
+			if !ok {
+				continue
+			}
+			writePromoteUnique(&b, table, u)
+			written++
+
+		case s.Kind == model.SuggestCreatePrimaryKey && s.KeyProbe == model.KeyProbeConfirmed && len(s.Columns) > 0:
+			writeConfirmedPrimaryKey(&b, table, s.Columns)
+			written++
+
+		case s.Kind == model.SuggestSyntheticPrimaryKey && len(s.Columns) > 0:
+			writeSyntheticPrimaryKey(&b, table, s.Columns[0], s.Note)
+			written++
+		}
+	}
+
+	if written == 0 {
+		b.WriteString("-- No missing-key suggestion in this run reached a safe DDL: either every\n")
+		b.WriteString("-- table already has one, or no candidate was confirmed by a full scan.\n")
+	}
+
+	return b.String(), written
+}
+
+// writePromoteUnique emits the cheap path: the catalog already proves the
+// key, so promoting it takes a lock but scans nothing.
+func writePromoteUnique(b *strings.Builder, t model.Table, u model.UniqueConstraint) {
+	fmt.Fprintf(b, "-- %s — promote UNIQUE %s (%s) to primary key\n",
+		t.Ref(), ident(u.Name), strings.Join(quotedIdents(u.Columns), ", "))
+	b.WriteString("-- The catalog already proves this: every column is NOT NULL and the\n")
+	b.WriteString("-- constraint already guarantees uniqueness. This takes a lock but scans\n")
+	b.WriteString("-- nothing — the index backing the constraint already exists.\n")
+	fmt.Fprintf(b, "ALTER TABLE %s\n", identTable(t.Schema, t.Name))
+	fmt.Fprintf(b, "    ADD PRIMARY KEY USING INDEX %s;\n\n", ident(u.Name))
+}
+
+// writeConfirmedPrimaryKey emits the two-step path for a key the catalog
+// could not prove on its own: build the unique index CONCURRENTLY, then
+// promote it. Both steps are commented, the same discipline
+// writeIndexSuggestion uses for CREATE INDEX CONCURRENTLY — it cannot run
+// inside a transaction block, and a failure leaves an INVALID index behind
+// that has to be dropped by hand.
+func writeConfirmedPrimaryKey(b *strings.Builder, t model.Table, columns []string) {
+	idx := truncateIdent("ux_" + t.Name + "_" + strings.Join(columns, "_"))
+
+	fmt.Fprintf(b, "-- %s — confirmed by a full scan: every row has a non-null value in\n", t.Ref())
+	fmt.Fprintf(b, "-- (%s) and no two rows share one.\n", strings.Join(columns, ", "))
+	b.WriteString("--\n")
+	b.WriteString("-- ADD PRIMARY KEY directly takes an ACCESS EXCLUSIVE lock and rebuilds the\n")
+	b.WriteString("-- index from scratch. Building it CONCURRENTLY first, then promoting it,\n")
+	b.WriteString("-- avoids that — the same two-step every index suggestion in this tool uses.\n")
+	if idx.truncated {
+		fmt.Fprintf(b, "-- Name shortened to fit %d bytes; in full it would be %s.\n", maxIdentifierBytes, idx.full)
+	}
+	fmt.Fprintf(b, "-- CREATE UNIQUE INDEX CONCURRENTLY %s ON %s (%s);\n",
+		ident(idx.value), identTable(t.Schema, t.Name), strings.Join(quotedIdents(columns), ", "))
+	fmt.Fprintf(b, "-- ALTER TABLE %s ADD PRIMARY KEY USING INDEX %s;\n\n",
+		identTable(t.Schema, t.Name), ident(idx.value))
+}
+
+// writeSyntheticPrimaryKey emits the path for a table with no natural key at
+// all: create the identity column, then promote it the same two-step way
+// writeConfirmedPrimaryKey does. The rewrite ADD COLUMN triggers to populate
+// the sequence for every existing row is unavoidable — the two-step here
+// only saves the second lock, the one ADD PRIMARY KEY would take on top of it.
+func writeSyntheticPrimaryKey(b *strings.Builder, t model.Table, column, note string) {
+	idx := truncateIdent("ux_" + t.Name + "_" + column)
+
+	fmt.Fprintf(b, "-- %s — no natural key confirmed; create a synthetic identity column.\n", t.Ref())
+	if note != "" {
+		fmt.Fprintf(b, "-- %s\n", note)
+	}
+	b.WriteString("--\n")
+	b.WriteString("-- Adding an identity column to a populated table already rewrites it, to\n")
+	b.WriteString("-- populate the sequence for every existing row — that cost cannot be\n")
+	b.WriteString("-- avoided. Building the unique index CONCURRENTLY before promoting it only\n")
+	b.WriteString("-- avoids a second, separate ACCESS EXCLUSIVE lock on top of that rewrite.\n")
+	if idx.truncated {
+		fmt.Fprintf(b, "-- Name shortened to fit %d bytes; in full it would be %s.\n", maxIdentifierBytes, idx.full)
+	}
+	fmt.Fprintf(b, "-- ALTER TABLE %s ADD COLUMN %s bigint GENERATED ALWAYS AS IDENTITY;\n",
+		identTable(t.Schema, t.Name), ident(column))
+	fmt.Fprintf(b, "-- CREATE UNIQUE INDEX CONCURRENTLY %s ON %s (%s);\n",
+		ident(idx.value), identTable(t.Schema, t.Name), strings.Join(quotedIdents([]string{column}), ", "))
+	fmt.Fprintf(b, "-- ALTER TABLE %s ADD PRIMARY KEY USING INDEX %s;\n\n",
+		identTable(t.Schema, t.Name), ident(idx.value))
+}
+
+// suggestedIndexesFile renders the indexes real code repeatedly asks for and
+// does not have.
+func suggestedIndexesFile(h header, schemas []model.Schema, findings []model.Finding) (string, int) {
+	var b strings.Builder
+	h.render(&b, "indexes real code repeatedly asks for and does not have")
+
+	var written int
+	for _, f := range findings {
+		if f.Kind != model.FindingUnindexedHotColumn || f.Suggestion == nil || len(f.Suggestion.Columns) == 0 {
+			continue
+		}
+		if writeIndexRecommendation(&b, schemas, f) {
+			written++
+		}
+	}
+
+	if written == 0 {
+		b.WriteString("-- No hot, unindexed column found in this run.\n")
+	}
+
+	return b.String(), written
+}
+
+// writeIndexRecommendation resolves the owning table from the finding's
+// object — schema.table.column — and emits a commented CREATE INDEX
+// CONCURRENTLY, the same discipline every CONCURRENTLY statement in this
+// package follows: it cannot run inside a transaction block, and a failure
+// leaves an INVALID index behind that has to be dropped by hand.
+func writeIndexRecommendation(b *strings.Builder, schemas []model.Schema, f model.Finding) bool {
+	cut := strings.LastIndex(f.Object, ".")
+	if cut < 0 {
+		return false
+	}
+	table, ok := tableByRef(schemas, f.Object[:cut])
+	if !ok {
+		return false
+	}
+
+	s := f.Suggestion
+	method := s.IndexMethod
+	if method == "" {
+		method = "btree"
+	}
+	columns := columnListWithOpclass(s.Columns, s.IndexOpclass)
+	idx := truncateIdent("ix_" + table.Name + "_" + strings.Join(s.Columns, "_"))
+
+	fmt.Fprintf(b, "-- %s — named repeatedly in real join or filter predicates, no index leads it\n", f.Object)
+	if s.Note != "" {
+		fmt.Fprintf(b, "-- %s\n", s.Note)
+	}
+	if ext := requiredExtension(method, s.IndexOpclass); ext != "" {
+		fmt.Fprintf(b, "-- CREATE EXTENSION IF NOT EXISTS %s;\n", ext)
+	}
+	b.WriteString("--\n")
+	b.WriteString("-- CONCURRENTLY does NOT run inside a transaction block: this fails under\n")
+	b.WriteString("-- psql --single-transaction, and a failure leaves an INVALID index behind\n")
+	b.WriteString("-- that has to be dropped by hand. Run it on its own.\n")
+	if idx.truncated {
+		fmt.Fprintf(b, "-- Name shortened to fit %d bytes; in full it would be %s.\n", maxIdentifierBytes, idx.full)
+	}
+	fmt.Fprintf(b, "-- CREATE INDEX CONCURRENTLY %s ON %s USING %s (%s);\n\n",
+		ident(idx.value), identTable(table.Schema, table.Name), method, columns)
+
+	return true
+}
+
+// requiredExtension names the extension an access method or operator class
+// depends on, so the artifact can remind a reader to install it — even though
+// this method is only ever recommended when the extension is already present
+// on the analyzed server.
+func requiredExtension(method, opclass string) string {
+	switch {
+	case opclass == "gin_trgm_ops":
+		return "pg_trgm"
+	case method == "hnsw":
+		return "vector"
+	default:
+		return ""
+	}
+}
+
+// tableByRef looks up a table by its schema-qualified reference.
+func tableByRef(schemas []model.Schema, ref string) (model.Table, bool) {
+	for _, s := range schemas {
+		for _, t := range s.Tables {
+			if t.Ref() == ref {
+				return t, true
+			}
+		}
+	}
+	return model.Table{}, false
+}
+
+// quotedIdents sanitizes a list of column names with no operator class.
+func quotedIdents(names []string) []string {
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = ident(n)
+	}
+	return out
+}
+
+// columnListWithOpclass renders a column list for a CREATE INDEX column
+// clause, appending the operator class to every column when one is needed.
+func columnListWithOpclass(columns []string, opclass string) string {
+	parts := make([]string, len(columns))
+	for i, c := range columns {
+		q := ident(c)
+		if opclass != "" {
+			q += " " + opclass
+		}
+		parts[i] = q
+	}
+	return strings.Join(parts, ", ")
 }
 
 // emptyNote states what an empty category means. In sampled mode the count is
