@@ -12,6 +12,10 @@
 # configuração de agente de código (regenerável: openspec init --tools claude)
 .claude/
 
+# artefatos que a ferramenta gera ao rodar contra um banco: são nomes de objeto
+# de um schema de terceiro, e o `setup` sugere este diretório por padrão
+/pgfathom-out/
+
 # autocompletar gerado do próprio comando durante o build
 /completions/
 

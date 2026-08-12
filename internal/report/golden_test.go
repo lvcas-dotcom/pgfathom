@@ -265,7 +265,7 @@ func TestEmphasisIsOptInAndOffByDefault(t *testing.T) {
 		t.Errorf("with emphasis off no escape may be emitted:\n%q", plain)
 	}
 
-	view.Emphasis = true
+	view.Emphasis = report.FullEmphasis
 	colored := renderDiscover(t, view)
 	if !ansi.MatchString(colored) {
 		t.Error("with emphasis on the sampling caveat must be highlighted")

@@ -271,7 +271,7 @@ func runDiscover(ctx context.Context, streams *Streams, opts *discoverOptions) e
 		ShowDiscarded:   opts.includeRejected,
 		ValidationStage: validationStage(opts.full, opts.sampleRows, result.Sampled()),
 		Detection:       run.Detection,
-		Emphasis:        report.Emphasis(streams.Color()),
+		Emphasis:        streams.Emphasis(),
 	})
 }
 

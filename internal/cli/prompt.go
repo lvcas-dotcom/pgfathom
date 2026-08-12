@@ -8,6 +8,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/lvcas-dotcom/pgfathom/internal/report"
 )
 
 // errCancelled is the user pressing ctrl-c or esc. It is not a failure: they
@@ -25,12 +27,31 @@ func runPrompt(m tea.Model) (tea.Model, error) {
 	return p.Run()
 }
 
+// The guide is painted in the project's palette, and lipgloss is what makes
+// that safe here: it knows whether the terminal is light or dark, so bone —
+// which is paper on paper against a white background — can have a dark
+// counterpart. The report cannot do this, because it must render identically
+// whatever it is pointed at. Here there is a person looking, so it is worth it.
+//
+// The roles match the report's, so the same colour means the same thing all the
+// way through: red is where attention goes, aqua is something settled, stone is
+// what supports without competing.
 var (
-	titleStyle    = lipgloss.NewStyle().Bold(true)
-	cursorStyle   = lipgloss.NewStyle().Bold(true)
-	selectedStyle = lipgloss.NewStyle().Bold(true)
-	hintStyle     = lipgloss.NewStyle().Faint(true)
-	detailStyle   = lipgloss.NewStyle().Faint(true)
+	ink   = lipgloss.AdaptiveColor{Light: report.BrandInk, Dark: report.BrandBone}
+	red   = lipgloss.Color(report.BrandRed)
+	aqua  = lipgloss.Color(report.BrandAqua)
+	stone = lipgloss.Color(report.BrandStone)
+)
+
+var (
+	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(ink)
+	cursorStyle   = lipgloss.NewStyle().Bold(true).Foreground(red)
+	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(ink)
+	tickStyle     = lipgloss.NewStyle().Bold(true).Foreground(aqua)
+	hintStyle     = lipgloss.NewStyle().Foreground(stone)
+	detailStyle   = lipgloss.NewStyle().Foreground(stone)
+	errorStyle    = lipgloss.NewStyle().Bold(true).Foreground(red)
+	answerStyle   = lipgloss.NewStyle().Foreground(aqua)
 )
 
 // Option is one line of a chooser: what it is, and what it means.
@@ -53,11 +74,29 @@ type chooser struct {
 	picked    map[int]bool
 	cancelled bool
 	done      bool
+
+	// height is how many options fit on screen. A list longer than the terminal
+	// scrolls its own top away, taking the title and the first options with it —
+	// and on a server with sixty schemas the first options are the big ones,
+	// which is precisely what the list exists to show.
+	height int
 }
+
+// visibleRows is the fallback when the terminal has not said how tall it is.
+// Small enough to fit anything, and the window keeps the cursor in view.
+const visibleRows = 10
 
 func (m chooser) Init() tea.Cmd { return nil }
 
 func (m chooser) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if size, ok := msg.(tea.WindowSizeMsg); ok {
+		// Seven lines go to the title, the two "more" markers, the hint and the
+		// blank lines around them; the eighth is slack, so the drawing never
+		// reaches the bottom of the terminal and scrolls its own top away.
+		m.height = max(3, size.Height-8)
+		return m, nil
+	}
+
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
@@ -78,19 +117,30 @@ func (m chooser) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursor++
 		}
 
+	case "pgup":
+		m.cursor = max(0, m.cursor-m.window())
+
+	case "pgdown":
+		m.cursor = min(len(m.options)-1, m.cursor+m.window())
+
+	case "home", "g":
+		m.cursor = 0
+
+	case "end", "G":
+		m.cursor = len(m.options) - 1
+
 	case " ":
 		if m.multi {
 			m.picked[m.cursor] = !m.picked[m.cursor]
 		}
 
 	case "enter":
-		if !m.multi {
-			m.picked = map[int]bool{m.cursor: true}
-		}
-		// Accepting nothing in multi mode would compose a command with an empty
-		// scope, which fails later with a worse message than this one.
+		// Enter takes what is ticked, and ticks what is under the cursor when
+		// nothing is. Moving to an item and pressing enter is what people expect
+		// to mean "this one", and a list that answered something else while the
+		// cursor sat somewhere visible would be answering for them.
 		if len(m.chosen()) == 0 {
-			return m, nil
+			m.picked[m.cursor] = true
 		}
 		m.done = true
 		return m, tea.Quit
@@ -99,12 +149,40 @@ func (m chooser) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// window is how many options are drawn at once.
+func (m chooser) window() int {
+	h := m.height
+	if h <= 0 {
+		h = visibleRows
+	}
+	return min(h, len(m.options))
+}
+
+// slice is the range of options to draw, kept around the cursor so it is always
+// on screen.
+func (m chooser) slice() (start, end int) {
+	w := m.window()
+
+	start = m.cursor - w/2
+	start = max(0, start)
+	if start+w > len(m.options) {
+		start = len(m.options) - w
+	}
+	return start, start + w
+}
+
 func (m chooser) View() string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "\n  %s\n\n", titleStyle.Render(m.title))
 
-	for i, o := range m.options {
+	start, end := m.slice()
+	if start > 0 {
+		fmt.Fprintf(&b, "    %s\n", detailStyle.Render(fmt.Sprintf("↑ %d more", start)))
+	}
+
+	for i := start; i < end; i++ {
+		o := m.options[i]
 		cursor := "  "
 		if i == m.cursor {
 			cursor = cursorStyle.Render("❯ ")
@@ -112,9 +190,9 @@ func (m chooser) View() string {
 
 		mark := ""
 		if m.multi {
-			mark = "[ ] "
+			mark = detailStyle.Render("[ ] ")
 			if m.picked[i] {
-				mark = selectedStyle.Render("[x] ")
+				mark = tickStyle.Render("[x] ")
 			}
 		}
 
@@ -130,9 +208,16 @@ func (m chooser) View() string {
 		b.WriteString("\n")
 	}
 
+	if end < len(m.options) {
+		fmt.Fprintf(&b, "    %s\n", detailStyle.Render(fmt.Sprintf("↓ %d more", len(m.options)-end)))
+	}
+
 	hint := "↑↓ move · enter choose · esc cancel"
 	if m.multi {
 		hint = "↑↓ move · space toggle · enter confirm · esc cancel"
+	}
+	if len(m.options) > m.window() {
+		hint += " · pgup/pgdn page"
 	}
 	fmt.Fprintf(&b, "\n  %s\n", hintStyle.Render(hint))
 
@@ -238,11 +323,11 @@ func (m line) View() string {
 
 	fmt.Fprintf(&b, "\n  %s\n\n", titleStyle.Render(m.title))
 
-	shown := m.value
-	if shown == "" && m.placeholder != "" {
+	shown := answerStyle.Render(m.value)
+	if m.value == "" && m.placeholder != "" {
 		shown = detailStyle.Render(m.placeholder)
 	}
-	fmt.Fprintf(&b, "  ❯ %s█\n", shown)
+	fmt.Fprintf(&b, "  %s%s%s\n", cursorStyle.Render("❯ "), shown, cursorStyle.Render("█"))
 
 	if m.hint != "" {
 		fmt.Fprintf(&b, "\n  %s\n", hintStyle.Render(m.hint))

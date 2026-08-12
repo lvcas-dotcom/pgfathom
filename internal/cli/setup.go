@@ -101,6 +101,8 @@ func runSetup(ctx context.Context, streams *Streams, root *cobra.Command) error 
 			"setup needs an interactive terminal; run `pgfathom discover --help` for the flags directly"))
 	}
 
+	Banner(streams.Err, streams.Emphasis(), "let's find what your schema never declared")
+
 	p, err := composePlan(ctx, streams)
 	if err != nil {
 		if errors.Is(err, errCancelled) {
@@ -135,21 +137,19 @@ func runSetup(ctx context.Context, streams *Streams, root *cobra.Command) error 
 func composePlan(ctx context.Context, streams *Streams) (plan, error) {
 	var p plan
 
-	if err := askConnection(&p); err != nil {
-		return p, err
-	}
-
 	// Connecting before asking anything else is what makes the scope question
 	// answerable: the list of schemas comes from the server, not from guesses.
-	cfg := db.DefaultConfig()
-	cfg.DSN = p.dsn
-	pool, err := db.Open(ctx, cfg)
+	// And a refused connection asks again instead of ending the guide — the
+	// most likely reason is a credential this command deliberately never asks
+	// for, which is a thing to explain, not to die on.
+	pool, err := connectWithRetries(ctx, streams, &p)
 	if err != nil {
 		return p, err
 	}
 	defer pool.Close()
 
-	_, _ = fmt.Fprintf(streams.Err, "\n  connected to PostgreSQL %s\n", pool.ServerVersion())
+	_, _ = fmt.Fprintf(streams.Err, "\n  %s %s\n",
+		tickStyle.Render("✓"), detailStyle.Render("connected to PostgreSQL "+pool.ServerVersion()))
 
 	if err := askScope(ctx, pool, &p); err != nil {
 		return p, err
@@ -160,47 +160,112 @@ func composePlan(ctx context.Context, streams *Streams) (plan, error) {
 	return p, askArtifacts(&p)
 }
 
+func connectWithRetries(ctx context.Context, streams *Streams, p *plan) (*db.Pool, error) {
+	var answered connection
+
+	for {
+		var err error
+		if answered, err = askConnection(p, answered); err != nil {
+			return nil, err
+		}
+
+		cfg := db.DefaultConfig()
+		cfg.DSN = p.dsn
+
+		pool, err := db.Open(ctx, cfg)
+		if err == nil {
+			return pool, nil
+		}
+
+		_, _ = fmt.Fprintf(streams.Err, "\n  %s\n", errorStyle.Render("✗ could not connect"))
+		_, _ = fmt.Fprintf(streams.Err, "  %s\n\n", detailStyle.Render(err.Error()))
+		_, _ = fmt.Fprintf(streams.Err, "  %s\n", detailStyle.Render(
+			"This command never asks for a password: it relies on ~/.pgpass, or on "+dsnEnv+"."))
+
+		again, cerr := selectOne("Try again?", []Option{
+			{Label: "Yes", Detail: "your answers come back as the defaults"},
+			{Label: "No", Detail: "leave the guide"},
+		})
+		if cerr != nil {
+			return nil, cerr
+		}
+		if again == 1 {
+			return nil, errCancelled
+		}
+	}
+}
+
 // askConnection never reads a password. The environment variable is preferred
 // when it is already set, and otherwise the parts are assembled and the
 // credential left to ~/.pgpass — which is what this tool tells people to do
 // anyway, on the --dsn flag's own help text.
-func askConnection(p *plan) error {
-	if dsn := os.Getenv(dsnEnv); dsn != "" {
+func askConnection(p *plan, previous connection) (connection, error) {
+	if dsn := os.Getenv(dsnEnv); dsn != "" && previous.host == "" {
 		use, err := selectOne(dsnEnv+" is set. Use it?", []Option{
 			{Label: "Yes", Detail: redact(dsn)},
 			{Label: "No", Detail: "enter the connection details instead"},
 		})
 		if err != nil {
-			return err
+			return previous, err
 		}
 		if use == 0 {
 			p.dsn, p.dsnFromEnv = dsn, true
-			return nil
+			return previous, nil
 		}
 	}
 
-	host, err := askLine("Host", "the server to analyse", "localhost", "localhost")
+	// Whatever was answered before comes back as the default, so a retry is
+	// pressing enter four times rather than typing everything again.
+	c := previous.orDefaults()
+
+	host, err := askLine("Host", "the server to analyse", c.host, c.host)
 	if err != nil {
-		return err
+		return previous, err
 	}
-	port, err := askLine("Port", "", "5432", "5432")
+	port, err := askLine("Port", "", c.port, c.port)
 	if err != nil {
-		return err
+		return previous, err
 	}
-	database, err := askLine("Database", "", "postgres", "postgres")
+	database, err := askLine("Database", "", c.database, c.database)
 	if err != nil {
-		return err
+		return previous, err
 	}
-	user, err := askLine("User", "a read-only role is recommended", os.Getenv("USER"), os.Getenv("USER"))
+	user, err := askLine("User", "a read-only role is recommended", c.user, c.user)
 	if err != nil {
-		return err
+		return previous, err
 	}
 
 	// No password, on purpose. Reading one would put it in this process's
 	// memory and on somebody's screen, and the tool has stayed out of the
 	// credential business deliberately.
-	p.dsn = fmt.Sprintf("postgres://%s@%s:%s/%s", user, host, port, database)
-	return nil
+	answered := connection{host: host, port: port, database: database, user: user}
+	p.dsn, p.dsnFromEnv = answered.dsn(), false
+	return answered, nil
+}
+
+// connection is what was answered, kept so a failed attempt does not throw it
+// away. Losing four answers to a missing password is the kind of thing that
+// makes somebody close the terminal.
+type connection struct{ host, port, database, user string }
+
+func (c connection) orDefaults() connection {
+	if c.host == "" {
+		c.host = "localhost"
+	}
+	if c.port == "" {
+		c.port = "5432"
+	}
+	if c.database == "" {
+		c.database = "postgres"
+	}
+	if c.user == "" {
+		c.user = os.Getenv("USER")
+	}
+	return c
+}
+
+func (c connection) dsn() string {
+	return fmt.Sprintf("postgres://%s@%s:%s/%s", c.user, c.host, c.port, c.database)
 }
 
 func askScope(ctx context.Context, pool *db.Pool, p *plan) error {
@@ -213,22 +278,22 @@ func askScope(ctx context.Context, pool *db.Pool, p *plan) error {
 	}
 
 	options := make([]Option, 0, len(schemas))
-	preselected := []int{}
-	for i, s := range schemas {
+	for _, s := range schemas {
 		options = append(options, Option{
 			Label:  s.Name,
 			Detail: plural(s.Tables, "table", "tables"),
 		})
-		if s.Name == "public" {
-			preselected = append(preselected, i)
-		}
 	}
 
-	// The default is offered, not imposed. A server with dozens of schemas and
-	// almost nothing in public is ordinary in public-sector systems, and
-	// pointing at the default there is the most common way a first run ends in
-	// "nothing found" against a database full of relationships.
-	picked, err := selectMany("Which schemas?", options, preselected...)
+	// Nothing is ticked in advance, and public gets no head start.
+	//
+	// It used to be preselected, as a helpful default. On a server with sixty
+	// schemas the tick scrolled out of view while the user moved the cursor to
+	// the schema they wanted, and enter accepted the tick rather than the
+	// cursor — the guide answered "public" to someone looking at a schema with
+	// 226 tables. A default that cannot be seen while it applies is not a
+	// default, it is a trap.
+	picked, err := selectMany("Which schemas?", options)
 	if err != nil {
 		return err
 	}

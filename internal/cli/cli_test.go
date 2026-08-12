@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"github.com/lvcas-dotcom/pgfathom/internal/report"
+
 	"bytes"
 	"errors"
 	"regexp"
@@ -101,33 +103,33 @@ func TestNoANSIWhenNotATerminal(t *testing.T) {
 
 func TestResolveColor(t *testing.T) {
 	t.Run("explicit never wins over everything", func(t *testing.T) {
-		if resolveColor(ColorNever, nil) {
+		if resolveEmphasis(ColorNever, nil) != report.NoEmphasis {
 			t.Error("--color=never must disable colour")
 		}
 	})
 
 	t.Run("explicit always wins over detection", func(t *testing.T) {
-		if !resolveColor(ColorAlways, nil) {
+		if resolveEmphasis(ColorAlways, nil) == report.NoEmphasis {
 			t.Error("--color=always must enable colour even when not a terminal")
 		}
 	})
 
 	t.Run("NO_COLOR disables colour", func(t *testing.T) {
 		t.Setenv("NO_COLOR", "")
-		if resolveColor(ColorAuto, nil) {
+		if resolveEmphasis(ColorAuto, nil) != report.NoEmphasis {
 			t.Error("NO_COLOR must disable colour regardless of its value")
 		}
 	})
 
 	t.Run("dumb terminal disables colour", func(t *testing.T) {
 		t.Setenv("TERM", "dumb")
-		if resolveColor(ColorAuto, nil) {
+		if resolveEmphasis(ColorAuto, nil) != report.NoEmphasis {
 			t.Error("TERM=dumb must disable colour")
 		}
 	})
 
 	t.Run("auto without a terminal disables colour", func(t *testing.T) {
-		if resolveColor(ColorAuto, nil) {
+		if resolveEmphasis(ColorAuto, nil) != report.NoEmphasis {
 			t.Error("a non-terminal destination must not receive colour")
 		}
 	})

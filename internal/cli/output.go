@@ -3,6 +3,8 @@ package cli
 import (
 	"io"
 	"os"
+
+	"github.com/lvcas-dotcom/pgfathom/internal/report"
 )
 
 // ColorMode controls ANSI emission.
@@ -28,7 +30,7 @@ type Streams struct {
 
 	In io.Reader
 
-	color bool
+	color report.Emphasis
 
 	// progress is the decision about drawing a self-rewriting line on Err,
 	// taken at the boundary alongside colour and carried as a value.
@@ -38,12 +40,12 @@ type Streams struct {
 // StdStreams wires a Streams to the process.
 func StdStreams(mode ColorMode) *Streams {
 	s := &Streams{Out: os.Stdout, Err: os.Stderr, In: os.Stdin}
-	s.color = resolveColor(mode, os.Stdout)
+	s.color = resolveEmphasis(mode, os.Stdout)
 
 	// Progress is drawn on Err and therefore decided against Err. A run whose
 	// result is piped but whose diagnostics still go to a terminal is the
 	// ordinary case, and it is precisely the one that wants progress.
-	s.progress = newProgress(resolveColor(mode, os.Stderr), os.Stderr)
+	s.progress = newProgress(resolveEmphasis(mode, os.Stderr) != report.NoEmphasis, os.Stderr)
 	return s
 }
 
@@ -57,29 +59,47 @@ func (s *Streams) Progress() *Progress {
 }
 
 // Color reports whether ANSI sequences may be emitted.
-func (s *Streams) Color() bool { return s.color }
+func (s *Streams) Color() bool { return s.color != report.NoEmphasis }
 
-// resolveColor honours the explicit override first, then NO_COLOR, then
-// whether the destination is an interactive terminal.
-func resolveColor(mode ColorMode, out *os.File) bool {
+// Emphasis is the level the destination supports, decided once here.
+func (s *Streams) Emphasis() report.Emphasis { return s.color }
+
+// resolveEmphasis honours the explicit override first, then NO_COLOR, then
+// whether the destination is an interactive terminal — and finally whether that
+// terminal can render the brand palette as itself.
+func resolveEmphasis(mode ColorMode, out *os.File) report.Emphasis {
 	switch mode {
 	case ColorAlways:
-		return true
+		return depth()
 	case ColorNever:
-		return false
+		return report.NoEmphasis
 	}
 
 	// https://no-color.org — presence is enough, whatever the value.
 	if _, set := os.LookupEnv("NO_COLOR"); set {
-		return false
+		return report.NoEmphasis
 	}
 
 	// A dumb terminal cannot render escapes meaningfully.
 	if os.Getenv("TERM") == "dumb" {
-		return false
+		return report.NoEmphasis
 	}
 
-	return isTerminal(out)
+	if !isTerminal(out) {
+		return report.NoEmphasis
+	}
+	return depth()
+}
+
+// depth reads the de-facto signal for twenty-four bit colour. Getting it wrong
+// costs an approximation, never garbage: a terminal that lies about COLORTERM
+// is rarer than one that would print an unsupported sequence literally.
+func depth() report.Emphasis {
+	switch os.Getenv("COLORTERM") {
+	case "truecolor", "24bit":
+		return report.FullEmphasis
+	}
+	return report.BasicEmphasis
 }
 
 // isTerminal reports whether f is an interactive character device. Checking the
