@@ -35,14 +35,25 @@ profile  = "en"
 note     = "354 tables and 23 declared keys. Classic Rails keeps integrity in the application, so the denominator is tiny: this row measures what the tool proposes in a schema that declares almost nothing, not recall."
 
 # Entrada local, opcional. Um dump real não cabe num manifesto público, e o que
-# ele acrescenta não é gabarito — é comportamento em escala: tempo por etapa,
-# funil e ausência de travamento contra centenas de tabelas com dados de
-# verdade. Presente na máquina, é medido; ausente, o relatório diz que não foi.
+# ele acrescenta não está no corpus público: schema em português, de fornecedor
+# de gestão municipal, com a convenção de afixo que motivou a detecção de
+# nomenclatura — e com chave composta que o GitLab não tem na forma alcançável.
+# Presente na máquina, é medido; ausente, o relatório diz que não foi.
 #
-# [[schema]]
-# name     = "municipal-ptbr"
-# kind     = "local"
-# path     = "bench/local/municipal.sql"
-# postgres = "postgres:16-alpine"
-# profile  = "pt-br"
-# note     = "Real anonymised dump. Not reproducible by third parties, and stated as such in the published table."
+# Como obter um:
+#
+#   pg_dump --schema-only --no-owner --no-acl --schema=<schema> -f bench/local/<arquivo>.sql
+#
+# Só DDL, nenhuma linha de dado, e bench/local/ é ignorado pelo git. Não vale a
+# pena perseguir o que o dump referencia fora dele: num banco multi-schema real,
+# incluir os schemas vizinhos só descobre que eles referenciam outros, e o fecho
+# transitivo termina no banco inteiro mais PostGIS. O harness carrega dump local
+# com tolerância e publica quantos statements não aplicaram.
+[[schema]]
+name     = "municipal-ptbr"
+kind     = "local"
+path     = "bench/local/geral.sql"
+schema   = "geral"
+postgres = "postgres:16-alpine"
+profile  = "pt-br"
+note     = "Real schema from a Brazilian municipal management vendor, DDL only, not redistributable — so this row is reproducible by whoever holds the dump rather than by everyone. 226 tables and 277 declared keys inside the schema, plus 9 reaching into sibling schemas that were not dumped. Its reference affix is `idkey_` and `_idkey`, which no shipped profile knows and detection has to read off the schema — which is why the two regimes differ here by eighty points."

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/lvcas-dotcom/pgfathom/internal/bench"
+	"github.com/lvcas-dotcom/pgfathom/internal/model"
 )
 
 // TestManifestIsWellFormed needs neither Docker nor network, so a typo in the
@@ -61,5 +62,42 @@ func TestCacheIsNotVersioned(t *testing.T) {
 		if s.Kind == bench.FromLocal && !strings.Contains(string(ignored), "/bench/local/") {
 			t.Error(".gitignore must cover local dumps: they are real data")
 		}
+	}
+}
+
+// TestSplitIsDeterministic guards the property the published number rests on:
+// the same corpus divides the same way, every run. The recall report is a
+// versioned file, and its diff has to mean "the behaviour changed".
+func TestSplitIsDeterministic(t *testing.T) {
+	truth := make([]bench.Relation, 0, 9)
+	for _, name := range []string{"g", "c", "i", "a", "h", "b", "f", "d", "e"} {
+		truth = append(truth, bench.Relation{
+			Child:  model.SingleKey("public", name, "pai_id"),
+			Parent: model.SingleKey("public", "pai", "id"),
+		})
+	}
+
+	removed, kept := bench.Split(truth)
+	if len(removed)+len(kept) != len(truth) {
+		t.Fatalf("the halves account for %d of %d relations", len(removed)+len(kept), len(truth))
+	}
+	if len(removed) < len(kept) {
+		t.Errorf("odd counts must round up on the removed half: %d removed, %d kept", len(removed), len(kept))
+	}
+
+	// Shuffled input, same division: the order comes from the relations
+	// themselves, never from how they arrived.
+	shuffled := append(truth[4:], truth[:4]...)
+	again, _ := bench.Split(shuffled)
+	for i := range removed {
+		if removed[i].String() != again[i].String() {
+			t.Fatalf("division changed with input order at %d: %s vs %s",
+				i, removed[i], again[i])
+		}
+	}
+
+	// Alternating, not cutting: a cut would put every early name in one half.
+	if removed[0].Child.Table == removed[1].Child.Table {
+		t.Error("the halves must alternate across relations")
 	}
 }

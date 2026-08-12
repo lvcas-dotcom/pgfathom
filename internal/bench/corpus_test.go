@@ -28,23 +28,23 @@ func TestFetchCorpus(t *testing.T) {
 
 	ctx := context.Background()
 
-	for _, s := range manifest.Schemas {
-		t.Run(s.Name, func(t *testing.T) {
-			if s.Kind == bench.FromLocal {
-				if _, err := bench.Acquire(ctx, s); err != nil {
+	for _, e := range manifest.Schemas {
+		t.Run(e.Name, func(t *testing.T) {
+			if e.Kind == bench.FromLocal {
+				if _, err := bench.Acquire(ctx, e); err != nil {
 					t.Skipf("optional local schema not on this machine: %v", err)
 				}
 				return
 			}
 
-			downloaded, err := bench.Acquire(ctx, s)
+			downloaded, err := bench.Acquire(ctx, e)
 			if err != nil {
 				t.Fatalf("%v", err)
 			}
 			if downloaded {
-				t.Logf("downloaded and verified %s", s.CachePath())
+				t.Logf("downloaded and verified %s", e.CachePath())
 			} else {
-				t.Logf("already cached and verified: %s", s.CachePath())
+				t.Logf("already cached and verified: %s", e.CachePath())
 			}
 		})
 	}
@@ -59,20 +59,20 @@ func TestCorpus(t *testing.T) {
 	}
 
 	started := time.Now()
-	var results []bench.SchemaResult
+	var results []bench.EntryResult
 
-	for _, s := range manifest.Schemas {
-		if os.Getenv("PGFATHOM_BENCH_DSN_"+strings.ToUpper(strings.ReplaceAll(s.Name, "-", "_"))) == "" && !bench.Ready(s) {
-			if s.Kind == bench.FromLocal {
+	for _, e := range manifest.Schemas {
+		if os.Getenv("PGFATHOM_BENCH_DSN_"+strings.ToUpper(strings.ReplaceAll(e.Name, "-", "_"))) == "" && !bench.Ready(e) {
+			if e.Kind == bench.FromLocal {
 				// Optional by design: a real dump cannot live in a public
 				// manifest. Its absence is stated rather than omitted.
-				t.Logf("SKIP %s: optional local schema absent from this machine", s.Name)
+				t.Logf("SKIP %s: optional local schema absent from this machine", e.Name)
 				continue
 			}
-			t.Fatalf("%s is not in the cache; run: make corpus", s.Name)
+			t.Fatalf("%s is not in the cache; run: make corpus", e.Name)
 		}
 
-		res := measureSchema(t, s)
+		res := measureSchema(t, e)
 		results = append(results, res)
 	}
 
@@ -92,73 +92,109 @@ func TestCorpus(t *testing.T) {
 // server that already holds the schema keeps the harness usable there. It
 // changes nothing about the measurement, and the harness still reads the truth
 // and drops the keys itself — so whatever is pointed at must be disposable.
-func dsnFor(t *testing.T, s bench.Schema) string {
+func dsnFor(t *testing.T, e bench.Entry) (loadPath, dsn string) {
 	t.Helper()
 
-	env := "PGFATHOM_BENCH_DSN_" + strings.ToUpper(strings.ReplaceAll(s.Name, "-", "_"))
+	env := "PGFATHOM_BENCH_DSN_" + strings.ToUpper(strings.ReplaceAll(e.Name, "-", "_"))
 	if dsn := os.Getenv(env); dsn != "" {
-		t.Logf("%s: measuring against %s, not a container — the keys in it will be dropped", s.Name, env)
-		return dsn
+		t.Logf("%s: measuring against %s, not a container — the keys in it will be dropped", e.Name, env)
+		return "", dsn
 	}
-	return testutil.PostgresScript(t, s.Postgres, s.CachePath())
+
+	// A published schema applies cleanly, so the container entrypoint loads it
+	// under ON_ERROR_STOP and a failure is a real failure. A dump from a live
+	// database is the other case entirely, and gets the tolerant loader.
+	if e.Kind == bench.FromLocal {
+		return e.CachePath(), testutil.PostgresEmpty(t, e.Postgres)
+	}
+	return "", testutil.PostgresScript(t, e.Postgres, e.CachePath())
 }
 
-func measureSchema(t *testing.T, s bench.Schema) bench.SchemaResult {
+func measureSchema(t *testing.T, e bench.Entry) bench.EntryResult {
 	t.Helper()
 
 	ctx := context.Background()
-	dsn := dsnFor(t, s)
+	loadPath, dsn := dsnFor(t, e)
+
+	var loadFailures int
+	if loadPath != "" {
+		n, err := bench.Load(ctx, dsn, loadPath)
+		if err != nil {
+			t.Fatalf("%s: %v", e.Name, err)
+		}
+		loadFailures = n
+		if n > 0 {
+			t.Logf("%s: %d statements of the dump did not apply", e.Name, n)
+		}
+	}
 
 	// Two connections, on purpose. This one belongs to the harness and is
 	// allowed to write; it is what drops the keys. The pool below is the one
 	// the tool receives, with the read-only session policies it always has.
 	admin, err := pgx.Connect(ctx, dsn)
 	if err != nil {
-		t.Fatalf("%s: connecting as the harness: %v", s.Name, err)
+		t.Fatalf("%s: connecting as the harness: %v", e.Name, err)
 	}
 	defer func() { _ = admin.Close(ctx) }()
 
-	truth, outOfScope, err := bench.Truth(ctx, admin)
+	truth, outOfScope, err := bench.Truth(ctx, admin, e.Schema)
 	if err != nil {
-		t.Fatalf("%s: %v", s.Name, err)
+		t.Fatalf("%s: %v", e.Name, err)
 	}
 	if len(truth) == 0 {
-		t.Fatalf("%s declares no foreign key in the measured schema; there is nothing to recover", s.Name)
+		t.Fatalf("%s declares no foreign key in the measured schema; there is nothing to recover", e.Name)
 	}
 
-	dropped, err := bench.DropForeignKeys(ctx, admin)
-	if err != nil {
-		t.Fatalf("%s: %v", s.Name, err)
-	}
-	t.Logf("%s: %d keys in scope (%d out), %d dropped", s.Name, len(truth), outOfScope, dropped)
+	t.Logf("%s: %d keys in scope, %d reaching outside it", e.Name, len(truth), outOfScope)
 
 	cfg := db.DefaultConfig()
 	cfg.DSN = dsn
 	pool, err := db.Open(ctx, cfg)
 	if err != nil {
-		t.Fatalf("%s: opening pool: %v", s.Name, err)
+		t.Fatalf("%s: opening pool: %v", e.Name, err)
 	}
 	defer pool.Close()
 
-	result := bench.SchemaResult{
-		Schema:         s,
+	result := bench.EntryResult{
+		Entry:          e,
 		ServerVersion:  pool.ServerVersion(),
 		Truth:          len(truth),
 		TruthComposite: bench.CountComposite(truth),
 		OutOfScope:     outOfScope,
+		LoadFailures:   loadFailures,
 	}
 
-	for _, cfg := range bench.Configs {
-		m, err := bench.Measure(ctx, pool, s, cfg, truth)
-		if err != nil {
-			t.Fatalf("%s / %s: %v", s.Name, cfg.Name, err)
-		}
-		result.Tables = m.Coverage.TablesTotal
-		result.Measurements = append(result.Measurements, m)
+	// Partial first, then greenfield: greenfield starts from exactly the state
+	// partial leaves behind, so the second regime costs no second load and both
+	// describe the same database loaded the same way.
+	removed, kept := bench.Split(truth)
 
-		t.Logf("%s / %s: %d of %d recovered (%.1f%%), %d candidates, %d outside the truth set",
-			s.Name, cfg.Name, m.Recovered, len(truth), 100*m.Recall(len(truth)),
-			m.Candidates, m.Unmatched)
+	for _, regime := range bench.Regimes {
+		scored := removed
+		toDrop := removed
+		if regime == bench.RegimeGreenfield {
+			scored = truth
+			toDrop = kept
+		}
+
+		dropped, err := bench.DropForeignKeys(ctx, admin, e.Schema, toDrop)
+		if err != nil {
+			t.Fatalf("%s / %s: %v", e.Name, regime, err)
+		}
+		t.Logf("%s / %s: %d keys dropped, scoring against %d", e.Name, regime, dropped, len(scored))
+
+		for _, cfg := range bench.Configs {
+			m, err := bench.Measure(ctx, pool, e, regime, cfg, scored)
+			if err != nil {
+				t.Fatalf("%s / %s / %s: %v", e.Name, regime, cfg.Name, err)
+			}
+			result.Tables = m.Coverage.TablesTotal
+			result.Measurements = append(result.Measurements, m)
+
+			t.Logf("  %s / %s: %d of %d recovered (%.1f%%), %d candidates, %d outside",
+				regime, cfg.Name, m.Recovered, m.Truth, 100*m.Recall(),
+				m.Candidates, m.Unmatched)
+		}
 	}
 
 	return result
