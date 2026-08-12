@@ -41,25 +41,46 @@ func PostgresImageDSN(t *testing.T, image, fixture string) string {
 	return PostgresScript(t, image, fixturePath(t, fixture))
 }
 
+// PostgresEmpty starts a server with nothing in it, for a caller that loads the
+// schema itself. A dump taken from a real database rarely applies cleanly — it
+// names roles that do not exist here, reaches into schemas that were not
+// dumped, wants extensions the image lacks — and the entrypoint of the postgres
+// image applies init scripts under ON_ERROR_STOP, so the first of those
+// failures would kill the container instead of costing a few statements.
+func PostgresEmpty(t *testing.T, image string) string {
+	t.Helper()
+	return postgresContainer(t, image, "")
+}
+
 // PostgresScript is Postgres loaded from an SQL file named by absolute path,
 // which is how the benchmark harness loads a corpus schema that does not live
 // in testdata. Loading a corpus schema can take minutes, so the startup ceiling
 // is generous here in a way the fixture path never needs.
 func PostgresScript(t *testing.T, image, script string) string {
 	t.Helper()
+	return postgresContainer(t, image, script)
+}
+
+func postgresContainer(t *testing.T, image, script string) string {
+	t.Helper()
 
 	ctx := context.Background()
 
-	container, err := postgres.Run(ctx, image,
+	opts := []testcontainers.ContainerCustomizer{
 		postgres.WithDatabase("pgfathom_test"),
 		postgres.WithUsername("pgfathom_test"),
 		postgres.WithPassword("pgfathom_test"),
-		postgres.WithInitScripts(script),
-		testcontainers.WithWaitStrategy(
+	}
+	if script != "" {
+		opts = append(opts, postgres.WithInitScripts(script))
+	}
+
+	container, err := postgres.Run(ctx, image,
+		append(opts, testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").
 				WithOccurrence(2).
 				WithStartupTimeout(startupTimeout),
-		),
+		))...,
 	)
 	if err != nil {
 		t.Fatalf("starting PostgreSQL: %v", err)

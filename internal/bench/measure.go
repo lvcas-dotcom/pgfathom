@@ -5,6 +5,7 @@ package bench
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,10 +19,60 @@ import (
 	"github.com/lvcas-dotcom/pgfathom/internal/validate"
 )
 
-// measuredSchema is the namespace the corpus is measured over. The tool's own
-// default is the same one, so the number describes the run a user makes rather
-// than a configuration invented for the benchmark.
-const measuredSchema = "public"
+// Regime is how much of the declared integrity was taken away before asking.
+// The two are different questions, and neither answers the other.
+type Regime string
+
+const (
+	// RegimePartial removes half the keys and measures recovery of that half.
+	// The half left behind is evidence: naming detection reads it, exactly as it
+	// would in a database that declared part of its integrity and forgot the
+	// rest — which is the ordinary case, and the one a user is in.
+	RegimePartial Regime = "partial"
+
+	// RegimeGreenfield removes the rest too. It answers the hardest question,
+	// about a database that declares no integrity at all, and it is where the
+	// tool earns its argument. Measured alone it understates the tool: with
+	// nothing declared, detection has nothing to learn from.
+	RegimeGreenfield Regime = "greenfield"
+)
+
+// Regimes are measured in this order, because greenfield starts from exactly
+// the state partial leaves behind.
+var Regimes = []Regime{RegimePartial, RegimeGreenfield}
+
+// Label is how the regime reads in the published report.
+func (r Regime) Label() string {
+	switch r {
+	case RegimePartial:
+		return "partial — half the keys declared"
+	default:
+		return "greenfield — nothing declared"
+	}
+}
+
+// Split divides the ground truth in two, deterministically: the relations are
+// ordered and alternate positions go to each half.
+//
+// Alternating rather than cutting the list in two spreads the removed keys
+// across tables instead of concentrating them in a prefix of the alphabet. And
+// ordering rather than sampling is what makes the published number stable: the
+// recall report is a versioned file, and its diff has to mean "the behaviour
+// changed", never "the draw came out differently".
+func Split(truth []Relation) (removed, kept []Relation) {
+	ordered := make([]Relation, len(truth))
+	copy(ordered, truth)
+	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].key() < ordered[j].key() })
+
+	for i, r := range ordered {
+		if i%2 == 0 {
+			removed = append(removed, r)
+			continue
+		}
+		kept = append(kept, r)
+	}
+	return removed, kept
+}
 
 // Config is one way of running the pipeline. The three of them are the
 // decomposition the README exists to publish: how much name matching recovers
@@ -56,9 +107,14 @@ func (r Relation) key() string {
 
 func (r Relation) String() string { return r.Child.String() + " → " + r.Parent.String() }
 
-// Measurement is one configuration measured against one schema.
+// Measurement is one configuration, in one regime, against one schema.
 type Measurement struct {
+	Regime Regime
 	Config string
+
+	// Truth is the size of the ground truth this measurement was scored
+	// against: half the keys in the partial regime, all of them in greenfield.
+	Truth int
 
 	Recovered  int
 	Candidates int
@@ -81,16 +137,16 @@ type Measurement struct {
 }
 
 // Recall is the share of the ground truth recovered.
-func (m Measurement) Recall(truth int) float64 {
-	if truth == 0 {
+func (m Measurement) Recall() float64 {
+	if m.Truth == 0 {
 		return 0
 	}
-	return float64(m.Recovered) / float64(truth)
+	return float64(m.Recovered) / float64(m.Truth)
 }
 
-// SchemaResult is everything measured about one corpus entry.
-type SchemaResult struct {
-	Schema        Schema
+// EntryResult is everything measured about one corpus entry.
+type EntryResult struct {
+	Entry         Entry
 	ServerVersion string
 
 	Tables int
@@ -107,6 +163,12 @@ type SchemaResult struct {
 	// that quietly includes what was never in reach understates the tool.
 	OutOfScope int
 
+	// LoadFailures is how many statements of a local dump did not apply. Zero
+	// for a corpus entry that came from a published schema; rarely zero for a
+	// dump taken from a live database. Published, because a recall measured on
+	// half a schema is a recall about a schema nobody has.
+	LoadFailures int
+
 	Measurements []Measurement
 }
 
@@ -121,7 +183,7 @@ type SchemaResult struct {
 // reader. The ground truth has to be independent of the code being measured:
 // a catalog bug that dropped keys would otherwise remove them from the
 // denominator too, and the recall would look perfect for the wrong reason.
-func Truth(ctx context.Context, conn *pgx.Conn) (inScope []Relation, outOfScope int, err error) {
+func Truth(ctx context.Context, conn *pgx.Conn, schema string) (inScope []Relation, outOfScope int, err error) {
 	const query = `
 		SELECT cn.nspname, c.relname, array_agg(ca.attname ORDER BY k.ord),
 		       pn.nspname, p.relname, array_agg(pa.attname ORDER BY k.ord)
@@ -153,7 +215,7 @@ func Truth(ctx context.Context, conn *pgx.Conn) (inScope []Relation, outOfScope 
 			return nil, 0, fmt.Errorf("scanning declared key: %w", err)
 		}
 
-		if r.Child.Schema != measuredSchema || r.Parent.Schema != measuredSchema {
+		if r.Child.Schema != schema || r.Parent.Schema != schema {
 			outOfScope++
 			continue
 		}
@@ -170,16 +232,30 @@ func Truth(ctx context.Context, conn *pgx.Conn) (inScope []Relation, outOfScope 
 // throwaway server the harness started. The connection handed to discovery is
 // a *db.Pool, which refuses writes by session policy, and the integration test
 // that proves it still runs.
-func DropForeignKeys(ctx context.Context, conn *pgx.Conn) (int, error) {
+func DropForeignKeys(ctx context.Context, conn *pgx.Conn, schema string, only []Relation) (int, error) {
+	wanted := make(map[string]bool, len(only))
+	for _, r := range only {
+		wanted[r.key()] = true
+	}
+
 	const query = `
-		SELECT n.nspname, c.relname, con.conname
+		SELECT n.nspname, c.relname, con.conname,
+		       array_agg(ca.attname ORDER BY k.ord),
+		       pn.nspname, p.relname, array_agg(pa.attname ORDER BY k.ord)
 		FROM pg_constraint con
-		JOIN pg_class c      ON c.oid = con.conrelid
-		JOIN pg_namespace n  ON n.oid = c.relnamespace
-		WHERE con.contype = 'f' AND con.conparentid = 0
+		JOIN pg_class c        ON c.oid = con.conrelid
+		JOIN pg_namespace n    ON n.oid = c.relnamespace
+		JOIN pg_class p        ON p.oid = con.confrelid
+		JOIN pg_namespace pn   ON pn.oid = p.relnamespace
+		JOIN LATERAL unnest(con.conkey, con.confkey)
+		     WITH ORDINALITY AS k(child, parent, ord) ON true
+		JOIN pg_attribute ca   ON ca.attrelid = con.conrelid AND ca.attnum = k.child
+		JOIN pg_attribute pa   ON pa.attrelid = con.confrelid AND pa.attnum = k.parent
+		WHERE con.contype = 'f' AND con.conparentid = 0 AND n.nspname = $1
+		GROUP BY con.oid, n.nspname, c.relname, pn.nspname, p.relname
 		ORDER BY 1, 2, 3`
 
-	rows, err := conn.Query(ctx, query)
+	rows, err := conn.Query(ctx, query, schema)
 	if err != nil {
 		return 0, fmt.Errorf("listing constraints to drop: %w", err)
 	}
@@ -189,9 +265,18 @@ func DropForeignKeys(ctx context.Context, conn *pgx.Conn) (int, error) {
 
 	for rows.Next() {
 		var t target
-		if err := rows.Scan(&t.schema, &t.table, &t.name); err != nil {
+		var rel Relation
+		if err := rows.Scan(&t.schema, &t.table, &t.name,
+			&rel.Child.Columns, &rel.Parent.Schema, &rel.Parent.Table, &rel.Parent.Columns,
+		); err != nil {
 			rows.Close()
 			return 0, err
+		}
+		rel.Child.Schema, rel.Child.Table = t.schema, t.table
+
+		// Only the half this regime is asking about.
+		if len(wanted) > 0 && !wanted[rel.key()] {
+			continue
 		}
 		targets = append(targets, t)
 	}
@@ -215,17 +300,17 @@ func DropForeignKeys(ctx context.Context, conn *pgx.Conn) (int, error) {
 // truth. It calls the pipeline in process: measuring through the binary would
 // mean reparsing output that does not carry the funnel, and reimplementing the
 // sequence would measure the reimplementation.
-func Measure(ctx context.Context, pool *db.Pool, s Schema, cfg Config, truth []Relation) (Measurement, error) {
-	naming, err := profile.Embedded(s.Profile)
+func Measure(ctx context.Context, pool *db.Pool, e Entry, regime Regime, cfg Config, truth []Relation) (Measurement, error) {
+	naming, err := profile.Embedded(e.Profile)
 	if err != nil {
-		return Measurement{}, fmt.Errorf("loading profile %q: %w", s.Profile, err)
+		return Measurement{}, fmt.Errorf("loading profile %q: %w", e.Profile, err)
 	}
 
-	m := Measurement{Config: cfg.Name}
+	m := Measurement{Regime: regime, Config: cfg.Name, Truth: len(truth)}
 
 	opts := discovery.Options{
 		Profile:     naming,
-		Scope:       &catalog.Scope{Schemas: []string{measuredSchema}, Total: 1},
+		Scope:       &catalog.Scope{Schemas: []string{e.Schema}, Total: 1},
 		ToolVersion: "benchmark",
 		NoDetect:    cfg.NoDetect,
 		NoProbe:     cfg.NoProbe,

@@ -27,7 +27,7 @@ const (
 )
 
 // WriteReports renders both files under docs/benchmark.
-func WriteReports(results []SchemaResult, elapsed time.Duration) error {
+func WriteReports(results []EntryResult, elapsed time.Duration) error {
 	dir := filepath.Join(repoRoot(), "docs", "benchmark")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating report directory: %w", err)
@@ -45,7 +45,7 @@ func WriteReports(results []SchemaResult, elapsed time.Duration) error {
 	return nil
 }
 
-func renderRecall(results []SchemaResult) string {
+func renderRecall(results []EntryResult) string {
 	var b strings.Builder
 
 	b.WriteString("# Recovery rate on the corpus\n\n")
@@ -62,42 +62,56 @@ func renderRecall(results []SchemaResult) string {
 	b.WriteString("lives with the integration fixtures, where the answer was built alongside the\n")
 	b.WriteString("scenario and a wrong confirmation is recognisable as wrong.\n\n")
 
-	b.WriteString("**Naming detection is measured with its input removed.** It derives the local\n")
-	b.WriteString("reference affix by reading the foreign keys a schema already declares — and this\n")
-	b.WriteString("procedure drops every one of them first. So the `+ detection` row here describes\n")
-	b.WriteString("a schema that declares no integrity at all, which is the hardest case and a real\n")
-	b.WriteString("one, rather than the case where detection was measured at +78 points against\n")
-	b.WriteString("private schemas that still carried 470 declared keys. The two regimes are\n")
-	b.WriteString("different questions, and this corpus can only ask the first.\n\n")
+	b.WriteString("**Every schema is measured in two regimes, and they answer different\n")
+	b.WriteString("questions.** In *partial*, half the declared keys are removed and recovery is\n")
+	b.WriteString("scored on that half; the half left behind is evidence, which naming detection\n")
+	b.WriteString("reads exactly as it would in a database that declared part of its integrity and\n")
+	b.WriteString("forgot the rest. That is the ordinary case, and the one a user is in. In\n")
+	b.WriteString("*greenfield* the rest goes too, and recovery is scored on everything: the\n")
+	b.WriteString("hardest case, a database that declares nothing.\n\n")
+	b.WriteString("Reading only greenfield understates the tool, and by a lot where it matters\n")
+	b.WriteString("most. Detection learns the local reference affix from declared keys; with none\n")
+	b.WriteString("declared it has nothing to learn from, and a schema whose convention no shipped\n")
+	b.WriteString("profile knows falls to almost nothing. Reading only partial would hide the\n")
+	b.WriteString("hardest case. Both are published, and each row says which it is.\n\n")
 
 	fmt.Fprintf(&b, "Tool `%s`.\n\n", version())
 
 	for _, r := range results {
-		fmt.Fprintf(&b, "## %s\n\n", r.Schema.Name)
+		fmt.Fprintf(&b, "## %s\n\n", r.Entry.Name)
 
-		if r.Schema.Note != "" {
-			fmt.Fprintf(&b, "%s\n\n", r.Schema.Note)
+		if r.Entry.Note != "" {
+			fmt.Fprintf(&b, "%s\n\n", r.Entry.Note)
 		}
 
 		fmt.Fprintf(&b, "PostgreSQL %s · profile `%s` · %d tables · **%d keys in the truth set**",
-			r.ServerVersion, r.Schema.Profile, r.Tables, r.Truth)
+			r.ServerVersion, r.Entry.Profile, r.Tables, r.Truth)
+		if r.Entry.Schema != DefaultSchema {
+			fmt.Fprintf(&b, " · schema `%s`", r.Entry.Schema)
+		}
 		if r.TruthComposite > 0 {
 			fmt.Fprintf(&b, ", %d of them composite", r.TruthComposite)
 		}
 		if r.OutOfScope > 0 {
 			fmt.Fprintf(&b, " · %d keys reach outside the measured schema and are excluded", r.OutOfScope)
 		}
-		if r.Schema.Commit != "" {
-			fmt.Fprintf(&b, " · commit `%s`", short(r.Schema.Commit))
+		if r.Entry.Commit != "" {
+			fmt.Fprintf(&b, " · commit `%s`", short(r.Entry.Commit))
 		}
 		b.WriteString("\n\n")
 
-		b.WriteString("| Configuration | Recovered | Recall | of which composite | Candidates | Outside the truth set |\n")
-		b.WriteString("|---|---:|---:|---:|---:|---:|\n")
+		if r.LoadFailures > 0 {
+			fmt.Fprintf(&b, "**%d statements of this dump did not apply** — a dump taken from a live "+
+				"database names roles, schemas and extensions that a throwaway server does not have. "+
+				"The numbers below describe what loaded.\n\n", r.LoadFailures)
+		}
+
+		b.WriteString("| Regime | Configuration | Recovered | Recall | of which composite | Candidates | Outside the truth set |\n")
+		b.WriteString("|---|---|---:|---:|---:|---:|---:|\n")
 
 		for _, m := range r.Measurements {
-			fmt.Fprintf(&b, "| %s | %d | %.1f%% | %d of %d | %d | %d |\n",
-				m.Config, m.Recovered, 100*m.Recall(r.Truth),
+			fmt.Fprintf(&b, "| %s | %s | %d of %d | %.1f%% | %d of %d | %d | %d |\n",
+				m.Regime, m.Config, m.Recovered, m.Truth, 100*m.Recall(),
 				m.RecoveredComposite, r.TruthComposite, m.Candidates, m.Unmatched)
 		}
 		b.WriteString("\n")
@@ -112,7 +126,7 @@ func renderRecall(results []SchemaResult) string {
 	return b.String()
 }
 
-func writeCoverageNote(b *strings.Builder, r SchemaResult) {
+func writeCoverageNote(b *strings.Builder, r EntryResult) {
 	if len(r.Measurements) == 0 {
 		return
 	}
@@ -140,7 +154,7 @@ func writeCoverageNote(b *strings.Builder, r SchemaResult) {
 	b.WriteString("\n\n")
 }
 
-func renderCost(results []SchemaResult, elapsed time.Duration) string {
+func renderCost(results []EntryResult, elapsed time.Duration) string {
 	var b strings.Builder
 
 	b.WriteString("# Cost per stage\n\n")
@@ -154,7 +168,7 @@ func renderCost(results []SchemaResult, elapsed time.Duration) string {
 		version(), runtime.GOOS, runtime.GOARCH, runtime.NumCPU(), elapsed.Round(time.Second))
 
 	for _, r := range results {
-		fmt.Fprintf(&b, "## %s\n\n", r.Schema.Name)
+		fmt.Fprintf(&b, "## %s\n\n", r.Entry.Name)
 
 		for _, m := range r.Measurements {
 			fmt.Fprintf(&b, "### %s — %s\n\n", m.Config, m.Duration.Round(time.Millisecond))

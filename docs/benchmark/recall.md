@@ -14,13 +14,19 @@ right candidate was *raised*. The rule that no false positive may be confirmed
 lives with the integration fixtures, where the answer was built alongside the
 scenario and a wrong confirmation is recognisable as wrong.
 
-**Naming detection is measured with its input removed.** It derives the local
-reference affix by reading the foreign keys a schema already declares — and this
-procedure drops every one of them first. So the `+ detection` row here describes
-a schema that declares no integrity at all, which is the hardest case and a real
-one, rather than the case where detection was measured at +78 points against
-private schemas that still carried 470 declared keys. The two regimes are
-different questions, and this corpus can only ask the first.
+**Every schema is measured in two regimes, and they answer different
+questions.** In *partial*, half the declared keys are removed and recovery is
+scored on that half; the half left behind is evidence, which naming detection
+reads exactly as it would in a database that declared part of its integrity and
+forgot the rest. That is the ordinary case, and the one a user is in. In
+*greenfield* the rest goes too, and recovery is scored on everything: the
+hardest case, a database that declares nothing.
+
+Reading only greenfield understates the tool, and by a lot where it matters
+most. Detection learns the local reference affix from declared keys; with none
+declared it has nothing to learn from, and a schema whose convention no shipped
+profile knows falls to almost nothing. Reading only partial would hide the
+hardest case. Both are published, and each row says which it is.
 
 Tool `dev`.
 
@@ -30,11 +36,14 @@ Tool `dev`.
 
 PostgreSQL 18.4 · profile `en` · 1054 tables · **1857 keys in the truth set**, 53 of them composite · commit `a399ea9614c4`
 
-| Configuration | Recovered | Recall | of which composite | Candidates | Outside the truth set |
-|---|---:|---:|---:|---:|---:|
-| profile alone | 1131 | 60.9% | 1 of 53 | 1662 | 531 |
-| + detection | 1131 | 60.9% | 1 of 53 | 1662 | 531 |
-| + usage evidence | 1132 | 61.0% | 1 of 53 | 1665 | 533 |
+| Regime | Configuration | Recovered | Recall | of which composite | Candidates | Outside the truth set |
+|---|---|---:|---:|---:|---:|---:|
+| partial | profile alone | 577 of 929 | 62.1% | 0 of 53 | 990 | 413 |
+| partial | + detection | 577 of 929 | 62.1% | 0 of 53 | 990 | 413 |
+| partial | + usage evidence | 578 of 929 | 62.2% | 0 of 53 | 993 | 415 |
+| greenfield | profile alone | 1131 of 1857 | 60.9% | 1 of 53 | 1662 | 531 |
+| greenfield | + detection | 1131 of 1857 | 60.9% | 1 of 53 | 1662 | 531 |
+| greenfield | + usage evidence | 1132 of 1857 | 61.0% | 1 of 53 | 1665 | 533 |
 
 Candidates outside the truth set are **not false positives**. In a real schema
 a true relationship that was never declared is this tool's product; counting it
@@ -48,15 +57,39 @@ Coverage: 953 of 1054 tables analysed (90%). 101 partitioned.
 
 PostgreSQL 18.4 · profile `en` · 351 tables · **23 keys in the truth set** · commit `e4f8b88ea34f`
 
-| Configuration | Recovered | Recall | of which composite | Candidates | Outside the truth set |
-|---|---:|---:|---:|---:|---:|
-| profile alone | 11 | 47.8% | 0 of 0 | 348 | 337 |
-| + detection | 10 | 43.5% | 0 of 0 | 340 | 330 |
-| + usage evidence | 10 | 43.5% | 0 of 0 | 340 | 330 |
+| Regime | Configuration | Recovered | Recall | of which composite | Candidates | Outside the truth set |
+|---|---|---:|---:|---:|---:|---:|
+| partial | profile alone | 6 of 12 | 50.0% | 0 of 0 | 343 | 337 |
+| partial | + detection | 6 of 12 | 50.0% | 0 of 0 | 336 | 330 |
+| partial | + usage evidence | 6 of 12 | 50.0% | 0 of 0 | 336 | 330 |
+| greenfield | profile alone | 11 of 23 | 47.8% | 0 of 0 | 348 | 337 |
+| greenfield | + detection | 10 of 23 | 43.5% | 0 of 0 | 340 | 330 |
+| greenfield | + usage evidence | 10 of 23 | 43.5% | 0 of 0 | 340 | 330 |
 
 Candidates outside the truth set are **not false positives**. In a real schema
 a true relationship that was never declared is this tool's product; counting it
 as a defect would publish as an error the very thing being delivered.
 
 Coverage: 332 of 351 tables analysed (95%). 19 no_primary_key.
+
+## municipal-ptbr
+
+Real schema from a Brazilian municipal management vendor, DDL only, not redistributable — so this row is reproducible by whoever holds the dump rather than by everyone. 226 tables and 277 declared keys inside the schema, plus 9 reaching into sibling schemas that were not dumped. Its reference affix is `idkey_` and `_idkey`, which no shipped profile knows and detection has to read off the schema — which is why the two regimes differ here by eighty points.
+
+PostgreSQL 18.4 · profile `pt-br` · 226 tables · **277 keys in the truth set** · schema `geral`
+
+| Regime | Configuration | Recovered | Recall | of which composite | Candidates | Outside the truth set |
+|---|---|---:|---:|---:|---:|---:|
+| partial | profile alone | 5 of 139 | 3.6% | 0 of 0 | 7 | 2 |
+| partial | + detection | 117 of 139 | 84.2% | 0 of 0 | 147 | 30 |
+| partial | + usage evidence | 117 of 139 | 84.2% | 0 of 0 | 147 | 30 |
+| greenfield | profile alone | 5 of 277 | 1.8% | 0 of 0 | 7 | 2 |
+| greenfield | + detection | 5 of 277 | 1.8% | 0 of 0 | 7 | 2 |
+| greenfield | + usage evidence | 5 of 277 | 1.8% | 0 of 0 | 7 | 2 |
+
+Candidates outside the truth set are **not false positives**. In a real schema
+a true relationship that was never declared is this tool's product; counting it
+as a defect would publish as an error the very thing being delivered.
+
+Coverage: 224 of 226 tables analysed (99%). 2 no_primary_key.
 

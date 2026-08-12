@@ -37,8 +37,10 @@ const (
 	FromLocal Acquisition = "local"
 )
 
-// Schema is one corpus entry.
-type Schema struct {
+// Entry is one corpus entry. It is not the same thing as the PostgreSQL schema
+// it measures — that one is the Schema field — and calling both "schema" would
+// force every reader to guess which is meant.
+type Entry struct {
 	Name string      `toml:"name"`
 	Kind Acquisition `toml:"kind"`
 
@@ -60,12 +62,22 @@ type Schema struct {
 	// tuning, and would not fit in a column of the published table.
 	Profile string `toml:"profile"`
 
+	// Schema is the PostgreSQL schema measured inside the loaded database. It
+	// defaults to public, which is the tool's own default and therefore the run
+	// a user makes. A dump of one schema of a multi-schema database — the shape
+	// of every municipal system measured so far — names it here.
+	Schema string `toml:"schema"`
+
 	Note string `toml:"note"`
 }
 
+// DefaultSchema is what an entry measures when it says nothing: the tool's own
+// default, so the number describes the run a user makes.
+const DefaultSchema = "public"
+
 // Manifest is the versioned corpus recipe.
 type Manifest struct {
-	Schemas []Schema `toml:"schema"`
+	Schemas []Entry `toml:"schema"`
 }
 
 // LoadManifest reads bench/corpus.toml and checks that every entry carries
@@ -86,48 +98,51 @@ func LoadManifest() (*Manifest, error) {
 		return nil, fmt.Errorf("%s declares no schema", path)
 	}
 
-	for i, s := range m.Schemas {
-		if err := s.validate(); err != nil {
+	for i := range m.Schemas {
+		if m.Schemas[i].Schema == "" {
+			m.Schemas[i].Schema = DefaultSchema
+		}
+		if err := m.Schemas[i].validate(); err != nil {
 			return nil, fmt.Errorf("%s: entry %d: %w", path, i+1, err)
 		}
 	}
 	return &m, nil
 }
 
-func (s Schema) validate() error {
+func (e Entry) validate() error {
 	switch {
-	case s.Name == "":
+	case e.Name == "":
 		return fmt.Errorf("name is required")
-	case s.Postgres == "":
-		return fmt.Errorf("%s: postgres image is required", s.Name)
-	case s.Profile == "":
-		return fmt.Errorf("%s: profile is required, and is published with the numbers", s.Name)
+	case e.Postgres == "":
+		return fmt.Errorf("%s: postgres image is required", e.Name)
+	case e.Profile == "":
+		return fmt.Errorf("%s: profile is required, and is published with the numbers", e.Name)
 	}
 
-	switch s.Kind {
+	switch e.Kind {
 	case FromSQL:
-		if s.URL == "" || s.Commit == "" || s.SHA256 == "" {
-			return fmt.Errorf("%s: a downloaded schema needs url, commit and sha256", s.Name)
+		if e.URL == "" || e.Commit == "" || e.SHA256 == "" {
+			return fmt.Errorf("%s: a downloaded schema needs url, commit and sha256", e.Name)
 		}
-		if !strings.Contains(s.URL, s.Commit) {
-			return fmt.Errorf("%s: the url must pin the declared commit, or the checksum guards a moving target", s.Name)
+		if !strings.Contains(e.URL, e.Commit) {
+			return fmt.Errorf("%s: the url must pin the declared commit, or the checksum guards a moving target", e.Name)
 		}
 	case FromLocal:
-		if s.Path == "" {
-			return fmt.Errorf("%s: a local schema needs a path", s.Name)
+		if e.Path == "" {
+			return fmt.Errorf("%s: a local schema needs a path", e.Name)
 		}
 	default:
-		return fmt.Errorf("%s: unknown acquisition kind %q", s.Name, s.Kind)
+		return fmt.Errorf("%s: unknown acquisition kind %q", e.Name, e.Kind)
 	}
 	return nil
 }
 
 // CachePath is where a schema's SQL lives once acquired.
-func (s Schema) CachePath() string {
-	if s.Kind == FromLocal {
-		return filepath.Join(repoRoot(), s.Path)
+func (e Entry) CachePath() string {
+	if e.Kind == FromLocal {
+		return filepath.Join(repoRoot(), e.Path)
 	}
-	return filepath.Join(repoRoot(), "bench", "cache", s.Name+".sql")
+	return filepath.Join(repoRoot(), "bench", "cache", e.Name+".sql")
 }
 
 // repoRoot locates the repository from this file's own path, so the harness

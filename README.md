@@ -347,46 +347,71 @@ extractor is an open question rather than a settled result. It is reported here 
 feature that measured smaller than its argument should say so.
 
 These are private databases, so the numbers are reproducible by their owners rather than by
-you. That is what the public corpus below is for.
+you. The corpus below replaces them as the headline: the pt-BR row there is the same class of
+schema, from the same vendor family, measured by a script instead of by hand.
 
-### The public corpus
+### The measured corpus
 
-`make corpus && make benchmark` loads a published schema, drops every declared foreign key,
-and asks the tool how many come back. The recipe is versioned in
-[`bench/corpus.toml`](bench/corpus.toml) with a pinned commit and a checksum per schema; the
-dumps themselves stay out of the repository. Full results, including cost per stage, live in
-[`docs/benchmark/`](docs/benchmark/).
+`make corpus && make benchmark` loads a schema, removes declared foreign keys, and asks the
+tool how many come back. The recipe is versioned in [`bench/corpus.toml`](bench/corpus.toml)
+with a pinned commit and a checksum per schema; the dumps stay out of the repository. Full
+results, including cost per stage, live in [`docs/benchmark/`](docs/benchmark/).
 
-| Schema | Tables | FKs | Profile alone | + detection | + join mining |
-|---|---:|---:|---:|---:|---:|
-| GitLab | 1,054 | 1,857 | **60.9%** | 60.9% | 61.0% |
-| Discourse | 354 | 23 | **47.8%** | 43.5% | 43.5% |
+Every schema is measured in **two regimes**, because they answer different questions.
 
-Three things this table is not saying, all of which the private one above could hide.
+*Partial* removes half the declared keys and scores recovery on that half. The half left
+behind is evidence: naming detection reads it, exactly as it would in a database that
+declared part of its integrity and forgot the rest. That is the ordinary case.
 
-**No verdict is measured here.** A published `structure.sql` has no rows, so nothing can be
+*Greenfield* removes the rest too and scores on everything — a database that declares no
+integrity at all. Hardest case, and the one this tool exists for.
+
+| Schema | Tables | Keys | Regime | Profile alone | + detection | + join mining |
+|---|---:|---:|---|---:|---:|---:|
+| GitLab | 1,054 | 1,857 | partial | 62.1% | 62.1% | **62.2%** |
+| GitLab | 1,054 | 1,857 | greenfield | 60.9% | 60.9% | **61.0%** |
+| Municipal system (pt-BR) | 226 | 277 | partial | 3.6% | **84.2%** | 84.2% |
+| Municipal system (pt-BR) | 226 | 277 | greenfield | 1.8% | 1.8% | 1.8% |
+| Discourse | 354 | 23 | partial | **50.0%** | 50.0% | 50.0% |
+| Discourse | 354 | 23 | greenfield | **47.8%** | 43.5% | 43.5% |
+
+**The pt-BR row is why naming detection exists, in one number.** That vendor writes
+`idkey_lote` and `lote_idkey`; no shipped profile knows those affixes, and none should — the
+convention belongs to the schema, not to the language. Read off the keys the schema still
+declares, it falls out in a single pass and recovery goes from 3.6% to **84.2%**. Remove
+every key and detection has nothing left to read, which is the 1.8% on the line below.
+
+Both numbers are true. Which one describes you depends on whether your database declares any
+integrity at all.
+
+**GitLab barely moves between regimes** — 1.2 points — because it writes `_id`, which the
+shipped `en` profile already knows. Detection has nothing to add where the convention is
+already the language's.
+
+**Join mining contributes almost nothing measurable here**: one extra key on GitLab, none
+elsewhere. Reported because a feature that measured smaller than the argument for it should
+say so.
+
+Three things these tables are not saying.
+
+**No verdict is measured.** A published `structure.sql` has no rows, so nothing can be
 confirmed or broken; what is measured is whether the right candidate was *raised*. The rule
 that no false positive may be confirmed is enforced against the integration fixtures, where
 the answer was built alongside the scenario.
 
-**Detection is measured with its input removed.** It learns the local reference affix by
-reading the keys a schema already declares, and this procedure drops all of them first. So
-these rows describe a database that declares no integrity whatsoever — the hardest case, and
-a real one — while the private rows above describe schemas that still had 470 declared keys
-for it to read. Same feature, two different questions.
+**Candidates outside the truth set are not errors.** In a real schema a true relationship
+that was never declared is this tool's product, so the count is published as what it is and
+enters no error rate.
 
 **Composite keys: 1 of 53 recovered on GitLab**, and the 52 are explained. Every one has the
-shape `(partition_id, build_id) → (id, partition_id)`: one position matching the key column by
-name, one anchoring on the target. Matching used to refuse that mix; it no longer does, which
-is where the one came from. The remaining 52 fail on the other half — reaching `p_ci_builds`
-from `build_id`. Matching by the table's trailing segment was measured against the schema
-before being written and would recover none of them: `builds` names six tables, `runners`
-five, `requests` seven, and picking one would be a guess. That is the same wall as the rest of
-the gap below, now with a count on it.
-
-Discourse declares 23 keys across 354 tables, so each hit moves it four points; the row is
-there to show what the tool proposes in a schema that declares almost nothing, not to be read
-as a recall figure.
+shape `(partition_id, build_id) → (id, partition_id)`: one position matching the key column
+by name, one anchoring on the target. Matching used to refuse that mix; it no longer does,
+which is where the one came from. The remaining 52 fail on the other half — reaching
+`p_ci_builds` from `build_id`. Matching by the table's trailing segment was measured against
+the schema before being written and would recover none of them: `builds` names six tables,
+`runners` five, `requests` seven, and picking one would be a guess. The pt-BR schema has 40
+composite-key tables and no composite foreign key at all — they are link tables, each
+pointing at two single-column keys — so it does not exercise that path either.
 
 ### What the remaining gap is
 
