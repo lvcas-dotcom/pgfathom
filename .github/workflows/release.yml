@@ -79,3 +79,9 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A versão vem do ref que disparou o workflow, não de `git describe`.
+          # Quando um candidato e a versão final marcam o mesmo commit — o caso
+          # normal, se o candidato passou e nada mudou depois —, describe escolhe
+          # entre as duas tags e pode escolher a errada: o release de v0.1.0
+          # tentou publicar como v0.1.0-rc.2 e morreu em asset já existente.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
