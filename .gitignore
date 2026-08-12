@@ -12,6 +12,9 @@
 # configuração de agente de código (regenerável: openspec init --tools claude)
 .claude/
 
+# autocompletar gerado do próprio comando durante o build
+/completions/
+
 # corpus de benchmark: a receita é versionada em bench/corpus.toml, os dumps não
 /bench/cache/
 /bench/local/
