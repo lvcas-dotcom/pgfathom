@@ -97,6 +97,27 @@ jobs:
           check-latest: true
       - run: make test-integration
 
+  # O carimbo de versão vive em duas configurações que precisam concordar — o
+  # Makefile e o .goreleaser.yaml. Quando divergem, o binário publicado responde
+  # uma pseudo-versão do commit em vez da tag, e o JSON sai com tool_version
+  # errado. Nada disso falha em teste unitário, então falha aqui.
+  release-config:
+    name: release config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          check-latest: true
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          install-only: true
+      - run: make release-check
+
   # Prova que o binário atravessa as plataformas sem cgo.
   crosscheck:
     name: cross-compile

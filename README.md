@@ -29,15 +29,16 @@
 `pgfathom` finds the relationships your database has but never declared — and proves them against the data instead of guessing from column names.
 
 > [!IMPORTANT]
-> **Pre-release. Under active development.**
-> The design is specified in [`docs/PGFATHOM.md`](docs/PGFATHOM.md) and implementation is
-> tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md). `pgfathom audit` and `pgfathom discover`
-> both run end to end today, verdicts and reviewable `.sql` artifacts included, and have
-> been exercised against real production schemas — see
-> [measurements](#first-measurements). Composite keys are supported as of the current
-> branch; still missing before a release is the public benchmark corpus, so the numbers
-> below predate composite support and have not yet been remeasured with it.
-> Terminal output shown below is the target design, not a recording.
+> **v0.1. Early, and measured.**
+> `pgfathom audit` and `pgfathom discover` run end to end, verdicts and reviewable
+> `.sql` artifacts included, against real production schemas and against a
+> [public corpus](#the-public-corpus) anyone can re-run with `make benchmark`.
+> Recovery is around 61% on a 1,857-key schema, and the report says what that
+> number does not measure as plainly as what it does. What the tool never does is
+> write to your database. The design is specified in
+> [`docs/PGFATHOM.md`](docs/PGFATHOM.md), the phases in
+> [`docs/ROADMAP.md`](docs/ROADMAP.md). Terminal output shown below is the target
+> design, not a recording.
 
 ---
 
@@ -309,7 +310,7 @@ like from a schema that finally knows its own relationships.
 | 5 | Data validation · `pgfathom discover` | Done |
 | 6 | Join mining from views and functions | Done |
 | 7 | Terminal, JSON and SQL output | Done |
-| 8 | Composite keys, benchmark corpus and release | Planned |
+| 8 | Composite keys, benchmark corpus and release | Done |
 
 Full detail in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
@@ -417,6 +418,25 @@ inheritance — are named in every report.
 The metric that has no tolerance is the other one: **zero confirmed false positives.** A
 missed relationship costs you a finding. A wrong one confirmed costs you the tool.
 
+## Installing
+
+```console
+$ go install github.com/lvcas-dotcom/pgfathom/cmd/pgfathom@latest
+```
+
+Or take a binary from the [releases](https://github.com/lvcas-dotcom/pgfathom/releases)
+— linux, macOS and Windows, amd64 and arm64, static, no runtime to install — and
+check it against the `checksums.txt` published beside it. The artifacts are not
+signed; the checksum file is what exists today, and
+[`docs/RELEASING.md`](docs/RELEASING.md) says so where it can be found.
+
+There is also a container image, on a base that carries root certificates
+because the tool opens a TLS connection to your server:
+
+```console
+$ docker run --rm ghcr.io/lvcas-dotcom/pgfathom:latest discover --dsn "$DSN"
+```
+
 ## Building from source
 
 Requires Go 1.25 or newer. No cgo, no other toolchain.
@@ -438,6 +458,15 @@ $ make help           # list every target
 $ make lint           # golangci-lint
 $ make cover          # coverage report
 $ make crosscheck     # prove the cross-platform build still works
+$ make release-check  # prove a released binary would know its own version
+```
+
+Two more targets need Docker, and one of them needs the network once:
+
+```console
+$ make test-integration  # the suite that starts real PostgreSQL servers
+$ make corpus            # fetch and verify the benchmark corpus
+$ make benchmark         # measure recovery rate → docs/benchmark/
 ```
 
 ## Contributing

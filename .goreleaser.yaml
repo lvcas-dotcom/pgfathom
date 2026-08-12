@@ -1,0 +1,107 @@
+version: 2
+
+# CGO_ENABLED=0 não é otimização, é requisito, e é o que torna estas quatro
+# plataformas baratas. `make crosscheck` prova a mesma coisa a cada mudança.
+
+project_name: pgfathom
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: pgfathom
+    main: ./cmd/pgfathom
+    binary: pgfathom
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    # Os três nomes abaixo têm que ser os mesmos que o Makefile injeta. São duas
+    # configurações concordando sobre três variáveis, que é o tipo de acordo que
+    # se rompe quando alguém renomeia uma delas — daí o job de CI que constrói
+    # por aqui e pergunta a versão ao binário.
+    ldflags:
+      - -s -w
+      - -X github.com/lvcas-dotcom/pgfathom/internal/buildinfo.Version={{ .Version }}
+      - -X github.com/lvcas-dotcom/pgfathom/internal/buildinfo.Commit={{ .ShortCommit }}
+      - -X github.com/lvcas-dotcom/pgfathom/internal/buildinfo.Date={{ .Date }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  - id: pgfathom
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - LICENSE
+      - README.md
+
+# Quem autoriza rodar isto contra produção confere o que baixou.
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^chore: arquiva"
+      - "^docs:"
+      - "^test:"
+
+# distroless/static, e não scratch: a ferramenta abre TLS contra o servidor do
+# usuário, e a configuração recomendada verifica o certificado. Sem CA raiz
+# dentro da imagem isso falha com uma mensagem que parece defeito do servidor.
+dockers_v2:
+  - images:
+      - ghcr.io/lvcas-dotcom/pgfathom
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    dockerfile: Dockerfile
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .Date }}"
+      org.opencontainers.image.source: https://github.com/lvcas-dotcom/pgfathom
+      org.opencontainers.image.licenses: Apache-2.0
+      org.opencontainers.image.description: >-
+        Discovers and validates PostgreSQL relationships that exist in the data
+        but were never declared
+
+# Canal opcional: exige o repositório lvcas-dotcom/homebrew-tap e um token com
+# escrita nele, nenhum dos dois criável a partir daqui. Sem o token o release
+# sai completo com um canal a menos, em vez de falhar no último passo depois de
+# já ter publicado binário. Ver docs/RELEASING.md.
+homebrew_casks:
+  - name: pgfathom
+    skip_upload: '{{ if index .Env "HOMEBREW_TAP_TOKEN" }}false{{ else }}true{{ end }}'
+    repository:
+      owner: lvcas-dotcom
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: https://github.com/lvcas-dotcom/pgfathom
+    description: Discovers and validates PostgreSQL relationships that exist in the data but were never declared
+
+release:
+  prerelease: auto
+  footer: |
+    ## Verificação
+
+    Os artefatos não são assinados. O que existe é `checksums.txt`, publicado
+    junto: confira o binário baixado contra ele antes de executar.
+
+    Recall medido no corpus público em `docs/benchmark/recall.md`, com o que
+    cada número mede e o que ele não mede.

@@ -1,0 +1,63 @@
+# Como sair um release
+
+Publicar é irreversível. Tag apagada continua no cache de quem já baixou, e uma
+versão republicada com conteúdo diferente é a coisa que mais rápido destrói a
+confiança numa ferramenta que as pessoas apontam para produção. O procedimento
+abaixo existe para que a etapa que menos perdoa — a tag — seja a última.
+
+## Antes do primeiro release
+
+Duas coisas moram fora deste repositório e ninguém as cria a partir daqui.
+
+**O tap do Homebrew.** Precisa existir um repositório `lvcas-dotcom/homebrew-tap`
+e um token com permissão de escrita nele, guardado como o segredo
+`HOMEBREW_TAP_TOKEN` deste repositório. Enquanto não existirem, o release sai
+completo com um canal a menos: a configuração pula o envio em vez de falhar
+depois de já ter publicado binário.
+
+**O pacote no ghcr.** A primeira publicação cria o pacote como privado. Depois
+dela, marque-o como público nas configurações do pacote, ou `docker pull` vai
+pedir autenticação a quem só quer experimentar.
+
+## O release
+
+1. Confirme que a `main` está verde, incluindo a suíte de integração — o
+   workflow de release não a executa, porque ela precisa de Docker no runner e
+   o que ela protege já foi protegido no merge.
+2. Reveja `docs/benchmark/recall.md`. Os números publicados no README saem
+   dali, e um release que os contradiga é pior do que um release sem eles.
+3. Rode `make release-check`. Ele valida a configuração e prova que o binário
+   do caminho de release sabe a própria versão.
+4. Rode `goreleaser release --snapshot --clean` e abra `dist/`. É a última
+   chance de olhar o que vai ser publicado antes de existir uma tag.
+5. Crie e empurre a tag:
+
+   ```console
+   $ git tag -a v0.1.0 -m 'v0.1.0'
+   $ git push origin v0.1.0
+   ```
+
+6. O workflow roda suíte, lint e build cruzado, e só então publica. Acompanhe
+   até o fim: uma falha depois da metade deixa artefatos parciais, e a resposta
+   certa é corrigir e lançar `v0.1.1`, nunca reescrever a tag.
+
+## O que o release não oferece
+
+**Os artefatos não são assinados.** O que existe é `checksums.txt`, publicado
+junto do release: confira o binário baixado contra ele antes de executar.
+Assinatura e SBOM ficam de fora por decisão, não por esquecimento — ambos
+acrescentam ferramenta externa e chave para custodiar, e entram quando houver
+quem os consuma.
+
+**A imagem não é reconstruída a partir do fonte durante o release.** Ela recebe
+o mesmo binário que vai nos arquivos, o que é o ponto: compilar de novo
+produziria um artefato diferente do que foi verificado.
+
+## O que sai
+
+| Canal | O quê |
+|---|---|
+| GitHub Releases | binário para linux, macOS e Windows, em amd64 e arm64, mais `checksums.txt` |
+| `ghcr.io` | imagem multiplataforma sobre `distroless/static`, com certificados raiz e usuário sem privilégio |
+| Homebrew | cask no tap, quando o token existe |
+| `go install` | sempre disponível, e carimba a versão pelo que o toolchain grava |

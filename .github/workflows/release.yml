@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+# Publicar é irreversível: tag apagada continua no cache de quem já baixou, e
+# versão republicada com conteúdo diferente é o que mais rápido destrói a
+# confiança numa ferramenta de infraestrutura. Então a suíte roda antes de o
+# goreleaser tocar em qualquer coisa, no mesmo job, e uma falha aborta sem
+# publicar nada.
+permissions:
+  contents: write
+  packages: write
+
+env:
+  CGO_ENABLED: "0"
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # O changelog é montado a partir do histórico, e um clone raso o
+          # deixaria pela metade sem dizer nada.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          check-latest: true
+
+      - name: instala golangci-lint
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      # A suíte de integração fica de fora: ela precisa de Docker dentro do
+      # runner e leva minutos, e o que ela protege já foi protegido no merge que
+      # produziu o commit sendo lançado.
+      - run: go test ./...
+      - run: make lint
+      - run: make crosscheck
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: login no ghcr
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Opcional por construção: sem ele o release sai completo com um canal
+          # a menos, em vez de falhar no último passo depois de já ter publicado
+          # binário. Ver docs/RELEASING.md.
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
