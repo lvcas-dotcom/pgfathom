@@ -2,6 +2,12 @@
 # Compilar de novo aqui produziria um artefato diferente do que foi publicado e
 # testado, que é a forma mais fácil de a imagem mentir sobre o que contém.
 #
+# O contexto é um diretório temporário que o goreleaser monta com um binário por
+# plataforma, em subdiretórios — linux/amd64/pgfathom, linux/arm64/pgfathom. É
+# daí que vem o TARGETPLATFORM: copiar da raiz do contexto funcionava no formato
+# antigo de configuração e falha neste, com "/pgfathom: not found" durante o
+# build multiplataforma.
+#
 # distroless/static, e não scratch. A ferramenta abre conexão TLS com o servidor
 # do usuário, e a configuração recomendada para produção verifica o certificado.
 # Sem autoridade certificadora dentro da imagem, isso falha com uma mensagem
@@ -11,6 +17,8 @@
 # de leitura precisa e nada além.
 FROM gcr.io/distroless/static-debian12:nonroot
 
-COPY pgfathom /usr/local/bin/pgfathom
+ARG TARGETPLATFORM
+
+COPY ${TARGETPLATFORM}/pgfathom /usr/local/bin/pgfathom
 
 ENTRYPOINT ["/usr/local/bin/pgfathom"]

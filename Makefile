@@ -12,7 +12,7 @@ LDFLAGS := -s -w \
 # CGO_ENABLED=0 não é otimização, é requisito: cross-compile precisa ser trivial.
 export CGO_ENABLED := 0
 
-.PHONY: build test test-integration corpus benchmark lint fmt cover crosscheck release-check clean help
+.PHONY: build test test-integration corpus benchmark lint fmt cover crosscheck release-check image-check clean help
 
 ## build: compila o binário em ./bin
 build:
@@ -78,6 +78,23 @@ release-check:
 		exit 1; \
 	fi; \
 	echo "carimbo ok: $$got"
+
+## image-check: prova que a imagem constrói para as duas plataformas
+#
+# Reproduz o contexto que o goreleaser monta — um binário por plataforma, em
+# subdiretórios — e constrói sem publicar. É a verificação que faltava: o
+# Dockerfile foi escrito para o formato de contexto antigo, plano, e o erro só
+# apareceu no primeiro release, no passo depois de tudo ter passado.
+image-check:
+	@ctx=$$(mktemp -d); \
+	trap 'rm -rf "$$ctx"' EXIT; \
+	for p in amd64 arm64; do \
+		mkdir -p "$$ctx/linux/$$p"; \
+		GOOS=linux GOARCH=$$p go build -trimpath -o "$$ctx/linux/$$p/$(BINARY)" ./cmd/$(BINARY) || exit 1; \
+	done; \
+	cp Dockerfile "$$ctx/"; \
+	docker buildx build --platform linux/amd64,linux/arm64 --output=type=cacheonly "$$ctx"
+	@echo "imagem ok"
 
 ## clean: remove artefatos de build
 clean:
