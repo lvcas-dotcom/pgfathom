@@ -43,19 +43,41 @@ func (o Options) smallTableRows() int64 {
 // SkipReason says why a possible target could not be used.
 type SkipReason string
 
-// Targets a single-column relationship cannot point at. They are recorded
-// rather than passed over: the relationship may well be real and merely out of
-// scope for this version.
+// Targets that were recognized and could not be used. They are recorded rather
+// than passed over: the relationship may well be real, and a near miss is where
+// the recall that got away is legible.
 const (
-	SkipCompositeKey SkipReason = "target has a composite primary key"
-	SkipNoKey        SkipReason = "target has no primary key"
+	SkipNoKey SkipReason = "target has no primary key"
+
+	// SkipArityMismatch is a name matching a target whose key is composite,
+	// from a single column. The composite pass reaches that target by the key's
+	// own columns, not by this name, so the two never meet.
+	SkipArityMismatch SkipReason = "name matches a target whose key is composite"
+
+	// SkipPartialKey is a composite key with a counterpart for some of its
+	// positions and not all. Proposing the partial constraint would propose one
+	// that rejects valid rows.
+	SkipPartialKey SkipReason = "only part of the target's composite key has a counterpart"
+
+	// SkipAmbiguousPosition is more than one way to resolve the same key
+	// against the same child, which is what a coincidence looks like.
+	SkipAmbiguousPosition SkipReason = "the target's key resolves against this child in more than one way"
+
+	// SkipAmbiguousSignature is several tables answering to the same composite
+	// key. With no name anchoring the child to any of them, more than one could
+	// reach total containment, and confirming both would confirm one that is
+	// not there.
+	SkipAmbiguousSignature SkipReason = "more than one table carries this composite key"
 )
 
-// Skip records a target that a name matched but that could not be used.
+// Skip records a target that was recognized but that could not be used.
 type Skip struct {
-	Child  model.ColumnRef
+	Child  model.KeyRef
 	Target string
 	Reason SkipReason
+
+	// Detail carries catalog names and counts only.
+	Detail string
 }
 
 // PolymorphicPair is a reference column that only makes sense beside a
@@ -113,20 +135,27 @@ func Generate(schemas []model.Schema, opts Options) *Result {
 		}
 	}
 
+	generateComposite(res, schemas, opts)
 	applyEvidence(res, schemas, opts)
 
 	finalize(res, opts.minScore())
 	return res
 }
 
-// eligible reports whether a column is worth a hypothesis. A column already
-// covered by a declared foreign key needs no inference: the relationship is in
-// the catalog, and reprocessing it would only duplicate noise in the report.
+// eligible reports whether a column is worth a hypothesis.
+//
+// A column already covered by a declared foreign key needs no inference: the
+// relationship is in the catalog, and reprocessing it would only duplicate
+// noise in the report.
+//
+// A single-column primary key is a surrogate and points at nothing, so it is
+// out. A column that merely takes part in a composite one is in: excluding it
+// would throw away the identifying relationship — item(nota_id, seq) keyed on
+// both and referencing nota through the first — which is why most composite
+// keys exist in the first place.
 func eligible(t model.Table, col model.Column) bool {
-	for _, pk := range t.PrimaryKey {
-		if strings.EqualFold(pk, col.Name) {
-			return false
-		}
+	if len(t.PrimaryKey) == 1 && strings.EqualFold(t.PrimaryKey[0], col.Name) {
+		return false
 	}
 	for _, fk := range t.ForeignKeys {
 		for _, c := range fk.Columns {
@@ -164,7 +193,7 @@ func generateFor(res *Result, index map[string][]indexedTarget, t model.Table, c
 		return
 	}
 
-	child := model.ColumnRef{Schema: t.Schema, Table: t.Name, Column: col.Name}
+	child := model.SingleKey(t.Schema, t.Name, col.Name)
 
 	// Collapse to one entry per table: a table can answer to several forms, and
 	// the strongest match is the one that counts.
@@ -190,7 +219,10 @@ func generateFor(res *Result, index map[string][]indexedTarget, t model.Table, c
 
 		switch {
 		case len(it.table.PrimaryKey) > 1:
-			res.Skipped = append(res.Skipped, Skip{Child: child, Target: name, Reason: SkipCompositeKey})
+			// The composite pass is the one that can reach this target, and it
+			// looks for the key's own columns rather than for this name. A note
+			// here is what keeps the gap between the two visible.
+			res.Skipped = append(res.Skipped, Skip{Child: child, Target: name, Reason: SkipArityMismatch})
 			continue
 		case len(it.table.PrimaryKey) == 0:
 			res.Skipped = append(res.Skipped, Skip{Child: child, Target: name, Reason: SkipNoKey})
@@ -220,12 +252,8 @@ func generateFor(res *Result, index map[string][]indexedTarget, t model.Table, c
 		signals := buildSignals(t, col, tgt, origins[key], match, ambiguous, entity, opts)
 
 		res.Candidates = append(res.Candidates, model.Candidate{
-			Child: child,
-			Parent: model.ColumnRef{
-				Schema: tgt.table.Schema,
-				Table:  tgt.table.Name,
-				Column: tgt.pkColumn.Name,
-			},
+			Child:     child,
+			Parent:    model.SingleKey(tgt.table.Schema, tgt.table.Name, tgt.pkColumn.Name),
 			Signals:   signals,
 			MetaScore: score(signals),
 			Verdict:   model.VerdictUnvalidated,

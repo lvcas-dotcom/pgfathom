@@ -3,6 +3,7 @@ package validate
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -53,42 +54,79 @@ func sampleFor(rows int64, known bool, opts Options) sampleSpec {
 	return sampleSpec{kind: kind, percent: pct, seed: opts.Seed}
 }
 
-// buildQuery assembles the aggregation for one candidate. Identifiers are
-// quoted without exception; the sampling fraction is computed here and
-// rendered by strconv, never taken from user input.
+// buildQuery assembles the aggregation for one candidate, of any arity.
+// Identifiers are quoted without exception; the sampling fraction is computed
+// here and rendered by strconv, never taken from user input.
 //
-// The scanned CTE is read once and feeds both the total examined — which is
-// what makes NULL dominance measurable — and the per-value aggregation that
-// turns the anti-join from row count into column cardinality.
+// The key travels as one projected column per position, never as a
+// concatenation: concatenating would collide distinct tuples and would push a
+// user value through a text expression.
+//
+// The scanned CTE feeds three readings. The totals give what NULL dominance is
+// measured against, and how many rows MATCH SIMPLE exempts. The per-tuple
+// aggregation turns the anti-join from a row count into a cardinality.
 func buildQuery(c model.Candidate, spec sampleSpec) string {
-	child := pgx.Identifier{c.Child.Schema, c.Child.Table}.Sanitize()
-	col := pgx.Identifier{c.Child.Column}.Sanitize()
 	parent := pgx.Identifier{c.Parent.Schema, c.Parent.Table}.Sanitize()
-	pk := pgx.Identifier{c.Parent.Column}.Sanitize()
 
 	// The alias must precede TABLESAMPLE in the from_item grammar.
-	from := child + " AS c" + sampleClause(spec)
+	from := pgx.Identifier{c.Child.Schema, c.Child.Table}.Sanitize() +
+		" AS c" + sampleClause(spec)
+
+	n := c.Child.Arity()
+	projected := make([]string, 0, n) // c."a" AS v1
+	positions := make([]string, 0, n) // v1
+	matched := make([]string, 0, n)   // p."k1" = cv.v1
+
+	for i, col := range c.Child.Columns {
+		v := "v" + strconv.Itoa(i+1)
+		projected = append(projected, "c."+pgx.Identifier{col}.Sanitize()+" AS "+v)
+		positions = append(positions, v)
+		matched = append(matched,
+			"p."+pgx.Identifier{c.Parent.Columns[i]}.Sanitize()+" = cv."+v)
+	}
+
+	// num_nulls over the whole key says both things at once: zero is a row the
+	// constraint would check, and anything between zero and the arity is a row
+	// MATCH SIMPLE lets through. At arity one the second is false by
+	// construction, which is the correct answer rather than a special case.
+	all := strings.Join(positions, ", ")
 
 	return fmt.Sprintf(`
 		WITH scanned AS (
-		    SELECT c.%[1]s AS v FROM %[2]s
+		    SELECT %[1]s FROM %[2]s
+		),
+		totals AS (
+		    SELECT count(*) AS rows_scanned,
+		           count(*) FILTER (WHERE num_nulls(%[3]s) BETWEEN 1 AND %[4]d) AS partial_null
+		    FROM scanned
 		),
 		child_vals AS (
-		    SELECT v, count(*) AS n FROM scanned WHERE v IS NOT NULL GROUP BY 1
+		    SELECT %[3]s, count(*) AS n FROM scanned WHERE num_nulls(%[3]s) = 0 GROUP BY %[5]s
 		),
 		marked AS (
-		    SELECT cv.n, EXISTS (SELECT 1 FROM %[3]s p WHERE p.%[4]s = cv.v) AS matched
+		    SELECT cv.n, EXISTS (SELECT 1 FROM %[6]s p WHERE %[7]s) AS matched
 		    FROM child_vals cv
 		)
 		SELECT
-		    (SELECT count(*) FROM scanned)                            AS sampled_rows,
+		    (SELECT rows_scanned FROM totals)                         AS sampled_rows,
+		    (SELECT partial_null FROM totals)                         AS partial_null_rows,
 		    count(*)                                                  AS distinct_vals,
 		    coalesce(sum(n), 0)::bigint                               AS not_null_rows,
 		    count(*) FILTER (WHERE NOT matched)                       AS orphan_vals,
 		    coalesce(sum(n) FILTER (WHERE NOT matched), 0)::bigint    AS orphan_rows,
 		    coalesce(max(n), 0)::bigint                               AS max_rows_per_value
 		FROM marked`,
-		col, from, parent, pk)
+		strings.Join(projected, ", "), from, all, n-1, groupBy(n), parent,
+		strings.Join(matched, " AND "))
+}
+
+// groupBy renders the ordinal group list, "1, 2, ..., n".
+func groupBy(n int) string {
+	out := make([]string, 0, n)
+	for i := 1; i <= n; i++ {
+		out = append(out, strconv.Itoa(i))
+	}
+	return strings.Join(out, ", ")
 }
 
 func sampleClause(spec sampleSpec) string {

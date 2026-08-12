@@ -9,9 +9,11 @@ const materialCoverage = 0.80
 // UnsupportedReason says why a table could not be analyzed.
 type UnsupportedReason string
 
-// Shapes that single-column inference cannot target.
+// Shapes inference cannot target. A composite primary key is no longer one of
+// them, and the reason it used to carry is gone rather than unused: an
+// enumerated reason with no producer still appears in the public contract as a
+// case that never happens, and a consumer writes code for a world that ended.
 const (
-	ReasonCompositePK  UnsupportedReason = "composite_primary_key"
 	ReasonNoPrimaryKey UnsupportedReason = "no_primary_key"
 	ReasonPartitioned  UnsupportedReason = "partitioned"
 	ReasonInheritance  UnsupportedReason = "table_inheritance"

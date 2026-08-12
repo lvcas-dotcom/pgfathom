@@ -29,14 +29,16 @@
 `pgfathom` finds the relationships your database has but never declared — and proves them against the data instead of guessing from column names.
 
 > [!IMPORTANT]
-> **Pre-release. Under active development.**
-> The design is specified in [`docs/PGFATHOM.md`](docs/PGFATHOM.md) and implementation is
-> tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md). `pgfathom audit` and `pgfathom discover`
-> both run end to end today, verdicts and reviewable `.sql` artifacts included, and have
-> been exercised against real production schemas — see
-> [measurements](#first-measurements). Still missing before a release: composite keys, which
-> put a quarter of a typical target schema out of reach, and the public benchmark corpus.
-> Terminal output shown below is the target design, not a recording.
+> **v0.1. Early, and measured.**
+> `pgfathom audit` and `pgfathom discover` run end to end, verdicts and reviewable
+> `.sql` artifacts included, against real production schemas and against a
+> [public corpus](#the-public-corpus) anyone can re-run with `make benchmark`.
+> Recovery is around 61% on a 1,857-key schema, and the report says what that
+> number does not measure as plainly as what it does. What the tool never does is
+> write to your database. The design is specified in
+> [`docs/PGFATHOM.md`](docs/PGFATHOM.md), the phases in
+> [`docs/ROADMAP.md`](docs/ROADMAP.md). Terminal output shown below is the target
+> design, not a recording.
 
 ---
 
@@ -308,7 +310,7 @@ like from a schema that finally knows its own relationships.
 | 5 | Data validation · `pgfathom discover` | Done |
 | 6 | Join mining from views and functions | Done |
 | 7 | Terminal, JSON and SQL output | Done |
-| 8 | Composite keys, benchmark corpus and release | Planned |
+| 8 | Composite keys, benchmark corpus and release | Done |
 
 Full detail in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
@@ -345,8 +347,71 @@ extractor is an open question rather than a settled result. It is reported here 
 feature that measured smaller than its argument should say so.
 
 These are private databases, so the numbers are reproducible by their owners rather than by
-you. A public corpus — GitLab, Odoo, Discourse, Redmine, Mastodon — is the next step, so
-anyone can check them.
+you. The corpus below replaces them as the headline: the pt-BR row there is the same class of
+schema, from the same vendor family, measured by a script instead of by hand.
+
+### The measured corpus
+
+`make corpus && make benchmark` loads a schema, removes declared foreign keys, and asks the
+tool how many come back. The recipe is versioned in [`bench/corpus.toml`](bench/corpus.toml)
+with a pinned commit and a checksum per schema; the dumps stay out of the repository. Full
+results, including cost per stage, live in [`docs/benchmark/`](docs/benchmark/).
+
+Every schema is measured in **two regimes**, because they answer different questions.
+
+*Partial* removes half the declared keys and scores recovery on that half. The half left
+behind is evidence: naming detection reads it, exactly as it would in a database that
+declared part of its integrity and forgot the rest. That is the ordinary case.
+
+*Greenfield* removes the rest too and scores on everything — a database that declares no
+integrity at all. Hardest case, and the one this tool exists for.
+
+| Schema | Tables | Keys | Regime | Profile alone | + detection | + join mining |
+|---|---:|---:|---|---:|---:|---:|
+| GitLab | 1,054 | 1,857 | partial | 62.1% | 62.1% | **62.2%** |
+| GitLab | 1,054 | 1,857 | greenfield | 60.9% | 60.9% | **61.0%** |
+| Municipal system (pt-BR) | 226 | 277 | partial | 3.6% | **84.2%** | 84.2% |
+| Municipal system (pt-BR) | 226 | 277 | greenfield | 1.8% | 1.8% | 1.8% |
+| Discourse | 354 | 23 | partial | **50.0%** | 50.0% | 50.0% |
+| Discourse | 354 | 23 | greenfield | **47.8%** | 43.5% | 43.5% |
+
+**The pt-BR row is why naming detection exists, in one number.** That vendor writes
+`idkey_lote` and `lote_idkey`; no shipped profile knows those affixes, and none should — the
+convention belongs to the schema, not to the language. Read off the keys the schema still
+declares, it falls out in a single pass and recovery goes from 3.6% to **84.2%**. Remove
+every key and detection has nothing left to read, which is the 1.8% on the line below.
+
+Both numbers are true. Which one describes you depends on whether your database declares any
+integrity at all.
+
+**GitLab barely moves between regimes** — 1.2 points — because it writes `_id`, which the
+shipped `en` profile already knows. Detection has nothing to add where the convention is
+already the language's.
+
+**Join mining contributes almost nothing measurable here**: one extra key on GitLab, none
+elsewhere. Reported because a feature that measured smaller than the argument for it should
+say so.
+
+Three things these tables are not saying.
+
+**No verdict is measured.** A published `structure.sql` has no rows, so nothing can be
+confirmed or broken; what is measured is whether the right candidate was *raised*. The rule
+that no false positive may be confirmed is enforced against the integration fixtures, where
+the answer was built alongside the scenario.
+
+**Candidates outside the truth set are not errors.** In a real schema a true relationship
+that was never declared is this tool's product, so the count is published as what it is and
+enters no error rate.
+
+**Composite keys: 1 of 53 recovered on GitLab**, and the 52 are explained. Every one has the
+shape `(partition_id, build_id) → (id, partition_id)`: one position matching the key column
+by name, one anchoring on the target. Matching used to refuse that mix; it no longer does,
+which is where the one came from. The remaining 52 fail on the other half — reaching
+`p_ci_builds` from `build_id`. Matching by the table's trailing segment was measured against
+the schema before being written and would recover none of them: `builds` names six tables,
+`runners` five, `requests` seven, and picking one would be a guess. The pt-BR schema has 40
+composite-key tables and no composite foreign key at all — they are link tables, each
+pointing at two single-column keys — so it does not exercise that path either.
 
 ### What the remaining gap is
 
@@ -363,16 +428,49 @@ No naming heuristic reaches these, by construction.
 
 ### Coverage is part of the metric
 
-On the municipal schema, 25% of the tables are out of reach because their primary keys are
-composite — a shape this version does not target. Every run says so, and says it as a
-proportion rather than a count, because "91 tables skipped" reads as minor until you notice
-it is a quarter of the database.
+The numbers above were measured while a quarter of the municipal schema — 86 tables of 338,
+all keyed on more than one column — was out of reach. That fraction is why composite keys
+and the benchmark corpus land in the same phase: a recall quoted without it would be
+misleading by omission, and quoting it against a tool that has since grown would be
+misleading in the other direction. **The table above will be remeasured with composite
+support before any of it is published as a release number.**
 
-A recall number quoted without that fraction would be misleading by omission, which is why
-composite keys and the benchmark corpus land in the same phase.
+What does not change is that every run states its own coverage, as a proportion rather than
+a count: "91 tables skipped" reads as minor until you notice it is a quarter of the
+database. The shapes still out of reach — no primary key at all, partitioned parents, table
+inheritance — are named in every report.
 
 The metric that has no tolerance is the other one: **zero confirmed false positives.** A
 missed relationship costs you a finding. A wrong one confirmed costs you the tool.
+
+## Installing
+
+```console
+$ go install github.com/lvcas-dotcom/pgfathom/cmd/pgfathom@latest
+```
+
+Or take a binary from the [releases](https://github.com/lvcas-dotcom/pgfathom/releases)
+— linux, macOS and Windows, amd64 and arm64, static, no runtime to install — and
+check it against the `checksums.txt` published beside it. The artifacts are not
+signed; the checksum file is what exists today, and
+[`docs/RELEASING.md`](docs/RELEASING.md) says so where it can be found.
+
+On macOS, Homebrew works once the tap exists:
+
+```console
+$ brew install lvcas-dotcom/tap/pgfathom
+```
+
+That is a cask, so it is macOS only, and it clears the quarantine attribute on
+install because the binaries are not notarised — the cask says so when you
+install it, and [`docs/RELEASING.md`](docs/RELEASING.md) explains why.
+
+There is also a container image, on a base that carries root certificates
+because the tool opens a TLS connection to your server:
+
+```console
+$ docker run --rm ghcr.io/lvcas-dotcom/pgfathom:latest discover --dsn "$DSN"
+```
 
 ## Building from source
 
@@ -395,6 +493,15 @@ $ make help           # list every target
 $ make lint           # golangci-lint
 $ make cover          # coverage report
 $ make crosscheck     # prove the cross-platform build still works
+$ make release-check  # prove a released binary would know its own version
+```
+
+Two more targets need Docker, and one of them needs the network once:
+
+```console
+$ make test-integration  # the suite that starts real PostgreSQL servers
+$ make corpus            # fetch and verify the benchmark corpus
+$ make benchmark         # measure recovery rate → docs/benchmark/
 ```
 
 ## Contributing

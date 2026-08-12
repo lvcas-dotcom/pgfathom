@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+# Publicar é irreversível: tag apagada continua no cache de quem já baixou, e
+# versão republicada com conteúdo diferente é o que mais rápido destrói a
+# confiança numa ferramenta de infraestrutura. Então a suíte roda antes de o
+# goreleaser tocar em qualquer coisa, no mesmo job, e uma falha aborta sem
+# publicar nada.
+permissions:
+  contents: write
+  packages: write
+
+env:
+  CGO_ENABLED: "0"
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # O changelog é montado a partir do histórico, e um clone raso o
+          # deixaria pela metade sem dizer nada.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          check-latest: true
+
+      - name: instala golangci-lint
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      # A suíte de integração fica de fora: ela precisa de Docker dentro do
+      # runner e leva minutos, e o que ela protege já foi protegido no merge que
+      # produziu o commit sendo lançado.
+      - run: go test ./...
+      - run: make lint
+      - run: make crosscheck
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: login no ghcr
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # A escrita no tap vai por deploy key, escopada num repositório só. A chave
+      # é gravada num arquivo porque é um caminho que o goreleaser espera, não o
+      # conteúdo. Sem o segredo, a variável fica vazia e o canal do Homebrew é
+      # pulado — a variável é sempre definida para que o template não avalie uma
+      # chave que não existe. Ver docs/RELEASING.md.
+      - name: chave do tap
+        env:
+          KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "HOMEBREW_TAP_KEY_PATH=" >> "$GITHUB_ENV"
+            echo "::notice::sem chave de deploy do tap: este release sai sem o canal do Homebrew"
+            exit 0
+          fi
+          path="$RUNNER_TEMP/homebrew_tap_key"
+          install -m 600 /dev/null "$path"
+          printf '%s\n' "$KEY" > "$path"
+          echo "HOMEBREW_TAP_KEY_PATH=$path" >> "$GITHUB_ENV"
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A versão vem do ref que disparou o workflow, não de `git describe`.
+          # Quando um candidato e a versão final marcam o mesmo commit — o caso
+          # normal, se o candidato passou e nada mudou depois —, describe escolhe
+          # entre as duas tags e pode escolher a errada: o release de v0.1.0
+          # tentou publicar como v0.1.0-rc.2 e morreu em asset já existente.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}

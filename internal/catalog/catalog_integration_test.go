@@ -183,8 +183,11 @@ func TestUnsupportedShapesAreRecorded(t *testing.T) {
 		byTable[s.Table] = s.Reason
 	}
 
+	if reason, found := byTable["public.matricula"]; found {
+		t.Errorf("a composite key is analyzable now; matricula recorded as %q", reason)
+	}
+
 	for table, want := range map[string]model.UnsupportedReason{
-		"public.matricula":              model.ReasonCompositePK,
 		"public.log_importacao":         model.ReasonNoPrimaryKey,
 		"public.lancamento":             model.ReasonPartitioned,
 		"public.documento_digitalizado": model.ReasonInheritance,

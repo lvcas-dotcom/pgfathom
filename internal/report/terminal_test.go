@@ -330,7 +330,7 @@ func TestMateriallyIncompleteScopeIsFlagged(t *testing.T) {
 	out := render(t, result(model.Coverage{
 		TablesTotal:       338,
 		TablesAnalyzed:    247,
-		TablesUnsupported: []model.SkippedTable{{Table: "public.x", Reason: model.ReasonCompositePK}},
+		TablesUnsupported: []model.SkippedTable{{Table: "public.x", Reason: model.ReasonNoPrimaryKey}},
 	}))
 
 	if !strings.Contains(out, "(73%)") {

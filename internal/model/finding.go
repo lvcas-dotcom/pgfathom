@@ -23,8 +23,11 @@ const (
 	// this version does not model.
 	FindingPolymorphicPair FindingKind = "polymorphic_pair"
 
-	// FindingUnsupportedTarget is a name that matched a table this version
-	// cannot point at, typically because its key is composite.
+	// FindingUnsupportedTarget is a target that was recognized and could not be
+	// turned into a hypothesis: no primary key, part of a composite key with a
+	// counterpart, more than one way to resolve the same key, or several tables
+	// carrying the same key. Each is a near miss, and near misses are where the
+	// recall that got away is legible.
 	FindingUnsupportedTarget FindingKind = "unsupported_target"
 
 	// FindingMissingPrimaryKey is a table with no primary key: no row

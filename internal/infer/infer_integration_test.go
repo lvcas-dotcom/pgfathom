@@ -111,14 +111,17 @@ func TestPolymorphicAndUnsupportedAreRecognized(t *testing.T) {
 		t.Errorf("polymorphic pairs = %+v, want entidade_id beside entidade_tipo", res.Polymorphic)
 	}
 
-	var sawComposite bool
+	// A single column cannot stand for a key of two, and the near miss is the
+	// note that keeps the gap between name matching and the composite pass
+	// visible.
+	var sawArityMismatch bool
 	for _, s := range res.Skipped {
-		if s.Reason == infer.SkipCompositeKey {
-			sawComposite = true
+		if s.Reason == infer.SkipArityMismatch {
+			sawArityMismatch = true
 		}
 	}
-	if !sawComposite {
-		t.Errorf("skipped = %+v, want the composite-key target recorded", res.Skipped)
+	if !sawArityMismatch {
+		t.Errorf("skipped = %+v, want the arity mismatch recorded", res.Skipped)
 	}
 }
 

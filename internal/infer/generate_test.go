@@ -161,20 +161,20 @@ func TestAmbiguityGeneratesEveryTargetAndPenalizesAll(t *testing.T) {
 	}
 }
 
-func TestCompositeKeyTargetIsSkippedWithReason(t *testing.T) {
+func TestSingleColumnCannotStandForACompositeKey(t *testing.T) {
 	matricula := tbl("matricula")
 	matricula.PrimaryKey = []string{"aluno_id", "turma_id"}
 
 	res := generate(t, schema(matricula, tbl("historico", col("matricula_id"))))
 
 	if _, ok := find(res, "public.historico.matricula_id", "public.matricula.id"); ok {
-		t.Error("a composite-key target cannot be pointed at by a single column")
+		t.Error("one column cannot stand for a key of two")
 	}
 	if len(res.Skipped) == 0 {
 		t.Fatal("the skip must be recorded, not silent: the relationship may well be real")
 	}
-	if res.Skipped[0].Reason != infer.SkipCompositeKey {
-		t.Errorf("reason = %q, want the composite-key reason", res.Skipped[0].Reason)
+	if res.Skipped[0].Reason != infer.SkipArityMismatch {
+		t.Errorf("reason = %q, want the arity-mismatch reason", res.Skipped[0].Reason)
 	}
 }
 
@@ -282,8 +282,8 @@ func TestGenerationIsDeterministic(t *testing.T) {
 				len(again.Candidates), len(first.Candidates))
 		}
 		for j := range first.Candidates {
-			if first.Candidates[j].Child != again.Candidates[j].Child ||
-				first.Candidates[j].Parent != again.Candidates[j].Parent {
+			if first.Candidates[j].Child.String() != again.Candidates[j].Child.String() ||
+				first.Candidates[j].Parent.String() != again.Candidates[j].Parent.String() {
 				t.Fatalf("ordering changed at %d: %v vs %v",
 					j, first.Candidates[j].Child, again.Candidates[j].Child)
 			}

@@ -450,8 +450,6 @@ func unsupportedReason(t *model.Table) model.UnsupportedReason {
 		return model.ReasonInheritance
 	case len(t.PrimaryKey) == 0:
 		return model.ReasonNoPrimaryKey
-	case len(t.PrimaryKey) > 1:
-		return model.ReasonCompositePK
 	default:
 		return ""
 	}

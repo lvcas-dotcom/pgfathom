@@ -63,7 +63,7 @@ func (p *Profile) Detect(schemas []model.Schema) model.NamingDetection {
 				accumulate(tablePrefixes, prefix, t.Name)
 			}
 
-			if t.HasSingleColumnPK() {
+			if len(t.PrimaryKey) == 1 {
 				d.SinglePKTables++
 				accumulate(pkNames, strings.ToLower(strings.TrimSpace(t.PrimaryKey[0])), t.Name)
 			}

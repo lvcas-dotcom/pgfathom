@@ -138,13 +138,12 @@ const (
 )
 
 func evaluateOne(c model.Candidate, rows map[string]int64, st *Stats, rejectFactor float64) (model.Candidate, outcome) {
-	child, childOK := st.columns[c.Child]
 	parentRows, parentOK := rows[c.Parent.TableRef()]
 	childRows, childRowsOK := rows[c.Child.TableRef()]
 
 	distinct, distinctOK := int64(0), false
-	if childOK && childRowsOK {
-		distinct, distinctOK = child.estimates.EstimatedDistinct(childRows)
+	if childRowsOK {
+		distinct, distinctOK = lowerBoundDistinct(c.Child, childRows, st)
 	}
 
 	// The cardinality check needs both ends of the arithmetic. Without them the
@@ -185,9 +184,7 @@ func evaluateOne(c model.Candidate, rows map[string]int64, st *Stats, rejectFact
 	// Range: histogram endpoints are the least precise piece of the statistics
 	// — a table that grew after ANALYZE has values outside the old bounds by
 	// construction — so a disjoint range penalizes and never rejects.
-	parent := st.columns[c.Parent]
-	if child.hasBounds && parent.hasBounds &&
-		(child.low > parent.high || child.high < parent.low) {
+	if st.rangeDisjoint(c) {
 		c.Signals = append(c.Signals, model.Signal{
 			Kind:   model.SigRangeViolation,
 			Weight: penaltyRangeViolation,
@@ -197,6 +194,56 @@ func evaluateOne(c model.Candidate, rows map[string]int64, st *Stats, rejectFact
 	}
 
 	return c, outcomeKept
+}
+
+// lowerBoundDistinct estimates the child key's distinct count from the only
+// inequality that always holds: a tuple is at least as varied as its most
+// varied column. pg_stats has no tuple cardinality — getting one would need
+// CREATE STATISTICS, which is DDL, and this tool emits none — and multiplying
+// per-column counts would assume the columns of a key are independent, which
+// is exactly what cannot be assumed.
+//
+// The bound is enough for the only thing this layer does. If the floor already
+// clears the margin, no better statistic would have saved the candidate.
+func lowerBoundDistinct(key model.KeyRef, rows int64, st *Stats) (int64, bool) {
+	var best int64
+	var known bool
+
+	for _, ref := range key.ColumnRefs() {
+		col, ok := st.columns[ref]
+		if !ok {
+			continue
+		}
+		n, ok := col.estimates.EstimatedDistinct(rows)
+		if !ok {
+			continue
+		}
+		if !known || n > best {
+			best, known = n, true
+		}
+	}
+	return best, known
+}
+
+// rangeDisjoint reports whether any position of the key has histogram
+// endpoints that cannot overlap its counterpart. It answers once for the whole
+// key: a key disjoint in three positions is one fact, not three, and emitting
+// three penalties would let arity decide the score by volume.
+func (s *Stats) rangeDisjoint(c model.Candidate) bool {
+	childRefs := c.Child.ColumnRefs()
+	parentRefs := c.Parent.ColumnRefs()
+
+	for i := range childRefs {
+		if i >= len(parentRefs) {
+			break
+		}
+		child, parent := s.columns[childRefs[i]], s.columns[parentRefs[i]]
+		if child.hasBounds && parent.hasBounds &&
+			(child.low > parent.high || child.high < parent.low) {
+			return true
+		}
+	}
+	return false
 }
 
 func noStatsDetail(c model.Candidate, distinctOK, parentOK bool) string {
