@@ -78,6 +78,12 @@ release-check:
 		exit 1; \
 	fi; \
 	echo "carimbo ok: $$got"
+# A nota da versão mais recente do CHANGELOG tem de sair inteira. A extração
+# quebra em silêncio quando o cabeçalho muda de forma, e o release é tarde
+# demais para descobrir isso.
+	@v=$$(sed -n 's/^## \[\([0-9][^]]*\)\].*/\1/p' CHANGELOG.md | head -1); \
+	./scripts/release-notes.sh "v$$v" > /dev/null; \
+	echo "nota de release ok: $$v"
 
 ## image-check: prova que a imagem constrói para as duas plataformas
 #

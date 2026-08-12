@@ -1,0 +1,33 @@
+name: Feature request
+description: Something the tool should do and does not
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >-
+        What you were trying to find out about your database, and where the tool
+        left you. Describe the situation rather than the feature — the fix is
+        often not the one either of us would guess first.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you had in mind
+      description: Optional. If you have a shape in mind, describe it.
+
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: The rules it has to live with
+      description: >-
+        These are not negotiable, and a request that needs one of them relaxed
+        will be declined. Ticking them means you have checked.
+      options:
+        - label: It does not require writing to the target database
+          required: true
+        - label: It does not require a row value to leave the database
+          required: true
