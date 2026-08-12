@@ -56,7 +56,32 @@ type Options struct {
 	// fail. Reporting them to the caller rather than writing to a stream is
 	// what lets a benchmark count what a command displays.
 	Warn func(Stage, string)
+
+	// Progress receives a report as each stage begins, and repeatedly during
+	// validation as candidates finish. Reported rather than printed for the same
+	// reason as Warn: the benchmark runs this unit to measure it, and wants to
+	// count rather than to see anything drawn.
+	Progress func(Progress)
 }
+
+// Progress is what is happening right now.
+type Progress struct {
+	Stage Stage
+
+	// Done and Total are set only where a denominator is known before the stage
+	// ends — validation, which is one query per candidate. Elsewhere they are
+	// zero, because a stage that cannot know how much is left must not imply it
+	// does.
+	Done, Total int
+}
+
+func (o Options) progress(p Progress) {
+	if o.Progress != nil {
+		o.Progress(p)
+	}
+}
+
+func (o Options) begin(s Stage) { o.progress(Progress{Stage: s}) }
 
 func (o Options) warn(s Stage, msg string) {
 	if o.Warn != nil {
@@ -123,6 +148,7 @@ func Run(ctx context.Context, conn Conn, opts Options) (*Result, error) {
 	started := time.Now()
 	tl := newTimeline(started)
 
+	opts.begin(StageCatalog)
 	cat, err := catalog.Read(ctx, conn, catalog.Options{Scope: opts.Scope, Exclude: opts.Exclude})
 	if err != nil {
 		return nil, err
@@ -135,6 +161,7 @@ func Run(ctx context.Context, conn Conn, opts Options) (*Result, error) {
 	var detection model.NamingDetection
 	active := opts.Profile
 	if !opts.NoDetect {
+		opts.begin(StageDetection)
 		detection = opts.Profile.Detect(cat.Schemas)
 		active = opts.Profile.WithDetected(detection)
 		tl.mark(StageDetection)
@@ -144,6 +171,7 @@ func Run(ctx context.Context, conn Conn, opts Options) (*Result, error) {
 	// read it costs signal, never correctness.
 	var evidence sqlprobe.Evidence
 	if !opts.NoProbe {
+		opts.begin(StageEvidence)
 		probed, err := sqlprobe.Probe(ctx, conn, cat.Schemas)
 		if err != nil {
 			opts.warn(StageEvidence, "usage evidence skipped: "+err.Error())
@@ -153,6 +181,7 @@ func Run(ctx context.Context, conn Conn, opts Options) (*Result, error) {
 		tl.mark(StageEvidence)
 	}
 
+	opts.begin(StageGeneration)
 	inferred := infer.Generate(cat.Schemas, infer.Options{
 		Profile:  active,
 		MinScore: opts.MinScore,
@@ -169,6 +198,7 @@ func Run(ctx context.Context, conn Conn, opts Options) (*Result, error) {
 	// production server. A failure to read statistics degrades to a warning,
 	// never to an opinion about candidates.
 	if !opts.NoStats {
+		opts.begin(StagePrefilter)
 		pre, err := stats.Prefilter(ctx, conn, cat.Schemas, inferred.Candidates, stats.Options{})
 		if err != nil {
 			opts.warn(StagePrefilter, "statistical prefilter skipped: "+err.Error())
@@ -183,7 +213,19 @@ func Run(ctx context.Context, conn Conn, opts Options) (*Result, error) {
 		tl.mark(StagePrefilter)
 	}
 
-	validated, err := validate.Run(ctx, conn, cat.Schemas, inferred.Candidates, opts.Validation)
+	opts.begin(StageValidation)
+
+	// The total is known before the stage starts: one query per candidate. This
+	// is the only stage with an honest denominator.
+	total := len(inferred.Candidates)
+	validation := opts.Validation
+	if opts.Progress != nil && total > 0 {
+		validation.OnValidated = func(done int) {
+			opts.progress(Progress{Stage: StageValidation, Done: done, Total: total})
+		}
+	}
+
+	validated, err := validate.Run(ctx, conn, cat.Schemas, inferred.Candidates, validation)
 	if err != nil {
 		return nil, err
 	}
