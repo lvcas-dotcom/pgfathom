@@ -445,9 +445,27 @@ missed relationship costs you a finding. A wrong one confirmed costs you the too
 
 ## Installing
 
+On Debian, Ubuntu, Fedora or RHEL, take the package for your architecture from the
+[releases](https://github.com/lvcas-dotcom/pgfathom/releases):
+
+```console
+$ sudo dpkg -i pgfathom_0.1.0_linux_amd64.deb     # or: sudo rpm -i ...linux_amd64.rpm
+$ pgfathom version
+```
+
+It installs the binary in `/usr/bin`, the licence and README under
+`/usr/share/doc/pgfathom/`, and shell completion for bash, zsh and fish. There is no apt or
+yum repository, so it does not update itself.
+
+With Go installed:
+
 ```console
 $ go install github.com/lvcas-dotcom/pgfathom/cmd/pgfathom@latest
 ```
+
+Note that this puts the binary in `$(go env GOPATH)/bin`, which is not on everyone's `PATH`,
+and that it reports its version but not its commit or build date — the module proxy carries no
+git metadata to stamp. The release binaries carry all three.
 
 Or take a binary from the [releases](https://github.com/lvcas-dotcom/pgfathom/releases)
 — linux, macOS and Windows, amd64 and arm64, static, no runtime to install — and

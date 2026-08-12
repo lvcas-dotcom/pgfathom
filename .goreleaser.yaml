@@ -8,6 +8,11 @@ project_name: pgfathom
 before:
   hooks:
     - go mod tidy
+    # O autocompletar é gerado do comando, nunca escrito à mão: o discover tem
+    # vinte e uma flags, e um arquivo mantido à mão divergiria no primeiro
+    # release que acrescentasse uma delas — sem que a divergência tivesse como
+    # ser notada. `go run` porque este hook roda antes de existir binário.
+    - sh -c 'mkdir -p completions && for sh in bash zsh fish; do go run ./cmd/pgfathom completion "$sh" > "completions/pgfathom.$sh"; done'
 
 builds:
   - id: pgfathom
@@ -40,6 +45,8 @@ archives:
     files:
       - LICENSE
       - README.md
+      - src: completions/*
+        dst: completions
 
 # Quem autoriza rodar isto contra produção confere o que baixou.
 checksum:
@@ -56,6 +63,36 @@ changelog:
       - "^chore: arquiva"
       - "^docs:"
       - "^test:"
+
+# Pacote de distribuição é o caminho mais curto do usuário-alvo: DBA em servidor
+# Linux, sem Go, sem Homebrew. Os caminhos abaixo não são escolha nossa, e é isso
+# que os torna certos — quem instala um pacote espera encontrar as coisas onde o
+# sistema as guarda. Sem repositório apt ou yum: ver docs/RELEASING.md.
+nfpms:
+  - id: pgfathom
+    package_name: pgfathom
+    formats: [deb, rpm]
+    maintainer: lvcas-dotcom <https://github.com/lvcas-dotcom>
+    homepage: https://github.com/lvcas-dotcom/pgfathom
+    license: Apache-2.0
+    description: |-
+      Discovers and validates PostgreSQL relationships that exist in the data
+      but were never declared.
+      Strictly read-only: it never issues a statement that modifies the database
+      under analysis, and no value from your tables reaches its output.
+    section: database
+    bindir: /usr/bin
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/pgfathom/LICENSE
+      - src: README.md
+        dst: /usr/share/doc/pgfathom/README.md
+      - src: completions/pgfathom.bash
+        dst: /usr/share/bash-completion/completions/pgfathom
+      - src: completions/pgfathom.zsh
+        dst: /usr/share/zsh/site-functions/_pgfathom
+      - src: completions/pgfathom.fish
+        dst: /usr/share/fish/vendor_completions.d/pgfathom.fish
 
 # distroless/static, e não scratch: a ferramenta abre TLS contra o servidor do
 # usuário, e a configuração recomendada verifica o certificado. Sem CA raiz

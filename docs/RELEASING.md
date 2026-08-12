@@ -68,6 +68,12 @@ quem os consuma.
 o mesmo binário que vai nos arquivos, o que é o ponto: compilar de novo
 produziria um artefato diferente do que foi verificado.
 
+**Não há repositório apt nem yum.** A instalação por `.deb` ou `.rpm` é de arquivo
+baixado, então não atualiza sozinha. Hospedar repositório exigiria servidor e
+chave de assinatura sob custódia, que é compromisso de outra ordem. Também não
+há página de manual: ela custaria uma dependência só para converter markdown em
+roff, e o `--help` cobre o mesmo terreno.
+
 **O cask limpa a quarentena do macOS na instalação.** Binário baixado e não
 assinado é recusado na primeira execução com uma mensagem sobre desenvolvedor
 não verificado, e sem isso o cask instalaria sem funcionar. Remover o atributo
@@ -80,6 +86,7 @@ notarizar, que exige conta de desenvolvedor Apple.
 | Canal | O quê |
 |---|---|
 | GitHub Releases | binário para linux, macOS e Windows, em amd64 e arm64, mais `checksums.txt` |
+| `.deb` e `.rpm` | no release, para amd64 e arm64, com autocompletar de shell |
 | `ghcr.io` | imagem multiplataforma sobre `distroless/static`, com certificados raiz e usuário sem privilégio |
 | Homebrew | cask no tap, só macOS, quando a deploy key existe |
 | `go install` | sempre disponível, e carimba a versão pelo que o toolchain grava |
