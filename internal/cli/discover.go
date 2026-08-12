@@ -202,7 +202,13 @@ func runDiscover(ctx context.Context, streams *Streams, opts *discoverOptions) e
 		return UsageError(err)
 	}
 
-	warn := func(msg string) { _, _ = fmt.Fprintln(streams.Err, "warning: "+msg) }
+	// A warning clears the progress line before writing: the tail of a longer
+	// line left at the end of a warning reads as a defect.
+	progress := streams.Progress()
+	warn := func(msg string) {
+		progress.Clear()
+		_, _ = fmt.Fprintln(streams.Err, "warning: "+msg)
+	}
 
 	pool, scope, err := connect(ctx, opts.connection, warn)
 	if err != nil {
@@ -227,8 +233,10 @@ func runDiscover(ctx context.Context, streams *Streams, opts *discoverOptions) e
 			Timeout:     opts.connection.statementTimeout,
 			Concurrency: opts.connection.concurrency,
 		},
-		Warn: func(_ discovery.Stage, msg string) { warn(msg) },
+		Warn:     func(_ discovery.Stage, msg string) { warn(msg) },
+		Progress: progress.Report,
 	})
+	progress.Clear()
 	if err != nil {
 		return err
 	}

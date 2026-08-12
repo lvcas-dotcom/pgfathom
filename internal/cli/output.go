@@ -29,13 +29,31 @@ type Streams struct {
 	In io.Reader
 
 	color bool
+
+	// progress is the decision about drawing a self-rewriting line on Err,
+	// taken at the boundary alongside colour and carried as a value.
+	progress *Progress
 }
 
 // StdStreams wires a Streams to the process.
 func StdStreams(mode ColorMode) *Streams {
 	s := &Streams{Out: os.Stdout, Err: os.Stderr, In: os.Stdin}
 	s.color = resolveColor(mode, os.Stdout)
+
+	// Progress is drawn on Err and therefore decided against Err. A run whose
+	// result is piped but whose diagnostics still go to a terminal is the
+	// ordinary case, and it is precisely the one that wants progress.
+	s.progress = newProgress(resolveColor(mode, os.Stderr), os.Stderr)
 	return s
+}
+
+// Progress returns the drawer for this destination. It is never nil, and it
+// writes nothing when the destination should not receive escapes.
+func (s *Streams) Progress() *Progress {
+	if s.progress == nil {
+		return &Progress{}
+	}
+	return s.progress
 }
 
 // Color reports whether ANSI sequences may be emitted.
