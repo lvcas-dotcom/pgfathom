@@ -1,0 +1,61 @@
+name: A verdict that is wrong
+description: A relationship reported as broken or confirmed that is not
+labels: ["correctness"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the most valuable kind of report this project gets. **A
+        confirmed false positive is a defect the project treats as blocking** —
+        the tool exists to be trusted about what it asserts.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What was wrong
+      options:
+        - Reported CONFIRMED, but the relationship is not real
+        - Reported BROKEN, but the data is fine
+        - Missed a relationship that is really there
+        - Reported UNPROVEN when the evidence was there
+    validations:
+      required: true
+
+  - type: textarea
+    id: line
+    attributes:
+      label: The line from the report
+      description: >-
+        The candidate and the number printed beside it. That number is the
+        evidence the verdict rests on, so it is where the diagnosis starts.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: truth
+    attributes:
+      label: How you know it is wrong
+      description: >-
+        What the relationship actually is, and how you know — a declared key
+        elsewhere, the application code, a query you ran. **Counts and object
+        names, please, not row values.**
+    validations:
+      required: true
+
+  - type: textarea
+    id: ddl
+    attributes:
+      label: DDL that reproduces it
+      description: >-
+        The smallest `CREATE TABLE` pair that shows the behaviour. Anonymise the
+        names if you need to — but keep the naming *pattern*, because it is
+        often the cause.
+      render: sql
+
+  - type: input
+    id: version
+    attributes:
+      label: pgfathom version
+    validations:
+      required: true

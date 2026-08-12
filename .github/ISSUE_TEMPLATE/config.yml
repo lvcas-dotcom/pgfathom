@@ -1,0 +1,7 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/lvcas-dotcom/pgfathom/security/advisories/new
+    about: >-
+      Report privately instead of opening an issue. Anything that breaks
+      read-only, gets a row value into the output, or executes generated SQL.

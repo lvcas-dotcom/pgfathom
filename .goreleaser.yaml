@@ -55,14 +55,11 @@ checksum:
 snapshot:
   version_template: "{{ incpatch .Version }}-snapshot"
 
+# A nota de release vem do CHANGELOG, escrita à mão, passada por
+# --release-notes no workflow. Lista de commits diz o que foi tocado; quem lê
+# uma release quer saber o que mudou para ele. Ver scripts/release-notes.sh.
 changelog:
-  use: git
-  sort: asc
-  filters:
-    exclude:
-      - "^chore: arquiva"
-      - "^docs:"
-      - "^test:"
+  disable: true
 
 # Pacote de distribuição é o caminho mais curto do usuário-alvo: DBA em servidor
 # Linux, sem Go, sem Homebrew. Os caminhos abaixo não são escolha nossa, e é isso

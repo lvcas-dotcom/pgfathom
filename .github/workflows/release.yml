@@ -23,8 +23,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # O changelog é montado a partir do histórico, e um clone raso o
-          # deixaria pela metade sem dizer nada.
+          # O goreleaser lê o histórico para resolver a versão e o commit que
+          # entram no binário, e um clone raso o deixaria pela metade sem dizer
+          # nada.
           fetch-depth: 0
 
       - uses: actions/setup-go@v5
@@ -73,10 +74,19 @@ jobs:
           printf '%s\n' "$KEY" > "$path"
           echo "HOMEBREW_TAP_KEY_PATH=$path" >> "$GITHUB_ENV"
 
+      # A nota de release é escrita à mão no CHANGELOG e extraída daqui. Se a
+      # seção da versão não existe, isto falha antes de o goreleaser publicar
+      # qualquer coisa — publicar é irreversível, e nota vazia não se corrige.
+      - name: nota de release
+        run: |
+          notes="$RUNNER_TEMP/release-notes.md"
+          scripts/release-notes.sh "${{ github.ref_name }}" > "$notes"
+          echo "RELEASE_NOTES=$notes" >> "$GITHUB_ENV"
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
-          args: release --clean
+          args: release --clean --release-notes "${{ env.RELEASE_NOTES }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # A versão vem do ref que disparou o workflow, não de `git describe`.

@@ -545,13 +545,20 @@ $ make benchmark         # measure recovery rate → docs/benchmark/
 
 ## Contributing
 
-Not open for code contributions yet — there is no code. The design is, though, and it is
-the cheapest moment to change it. If you have run into this problem on a real legacy
-database, [open an issue](../../issues): what the schema looked like, what naming
-convention it used, and what a tool would have needed to find.
+Yes, please. [CONTRIBUTING.md](CONTRIBUTING.md) has how to build it, how to run each
+part of the test suite, and how behaviour gets proposed before it is built.
 
-Once implementation starts, the two most valuable contributions will be **naming profiles
-for other languages** and **real-world schemas for the benchmark corpus**.
+The three most valuable things you can send:
+
+- **A verdict that is wrong.** A confirmed false positive is treated as a blocking
+  defect — the tool exists to be trusted about what it asserts. There is an issue
+  template for it.
+- **Naming profiles for other languages.** There are two. Every language a schema is
+  written in is a language this tool cannot read yet.
+- **Real schemas for the benchmark corpus.** The measurement is only as honest as the
+  databases it runs against.
+
+Found a security issue? Do not open an issue — see [SECURITY.md](SECURITY.md).
 
 ## License
 
