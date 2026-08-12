@@ -44,6 +44,24 @@ SELECT n.nspname
    AND has_schema_privilege(n.oid, 'USAGE')
  ORDER BY n.nspname`
 
+// querySchemaSummary is querySchemas plus how much is inside each one.
+//
+// The count is what turns a list of names into a decision. A server with sixty
+// schemas and six tables in the default one is ordinary in public-sector
+// systems, and pointing at the default there is the most common way a first run
+// ends in "nothing found" against a database full of relationships.
+const querySchemaSummary = `
+SELECT n.nspname,
+       count(c.oid) FILTER (WHERE c.relkind IN ('r', 'p')) AS tables
+  FROM pg_namespace n
+  LEFT JOIN pg_class c ON c.relnamespace = n.oid
+ WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+   AND n.nspname NOT LIKE 'pg_toast%'
+   AND n.nspname NOT LIKE 'pg_temp%'
+   AND has_schema_privilege(n.oid, 'USAGE')
+ GROUP BY n.oid, n.nspname
+ ORDER BY 2 DESC, 1`
+
 // queryColumns reads attributes with both the formatted type and the base type
 // name. Comparing formatted types directly produces false negatives between
 // equivalent spellings of the same type, which is why both are kept.

@@ -140,6 +140,27 @@ meant to be run unread. DDL for a broken relationship stays commented out — it
 while an orphan remains, and deciding what happens to an orphan row is a call about your
 domain, not one this tool is entitled to make.
 
+## First run
+
+Twenty-one flags is a lot to meet at once, against a database you did not build, with the
+person who authorised the access waiting. So there is a guide:
+
+```console
+$ pgfathom setup
+```
+
+It asks for the connection, lists the schemas **your server actually has with the number of
+tables in each** — the most common way a first run ends in "nothing found" is pointing at a
+default schema that holds six tables while the other sixty hold the database — then asks how
+thoroughly to validate and where the reviewable SQL should go.
+
+Then it prints the `discover` command your answers compose, and asks before running it. Copy
+that line: the guide exists to teach the flags, not to replace them, and the second time you
+will not need it.
+
+It never asks for a password. The connection string comes from `PGFATHOM_DSN`, or is built
+from host and database and left to your `~/.pgpass`.
+
 ## Scope
 
 `pgfathom` analyses `public` and nothing else unless you say otherwise. That
