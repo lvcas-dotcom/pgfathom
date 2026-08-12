@@ -25,6 +25,7 @@ Violação de qualquer uma destas é bug de severidade máxima, não questão de
 | Concorrência | `golang.org/x/sync/errgroup` com `SetLimit` |
 | Log | `log/slog` (stdlib) |
 | Tabela no terminal | `text/tabwriter` (stdlib) |
+| Guia interativo | `bubbletea` + `lipgloss`, só no subcomando `setup` |
 | Teste | `testing` + `github.com/google/go-cmp` |
 | Integração | `testcontainers-go`, atrás de `//go:build integration` |
 | Release | `goreleaser` |
@@ -35,6 +36,14 @@ Violação de qualquer uma destas é bug de severidade máxima, não questão de
 **Sem viper, sem testify.** A superfície de configuração é flag, env e um TOML. `go-cmp` dá diff melhor nas structs do modelo.
 
 A árvore de dependências pequena é requisito de produto, não gosto: o DBA que autoriza rodar isso contra produção abre o `go.mod` antes de decidir. Dependência nova no binário precisa de justificativa na proposal.
+
+**`bubbletea` e `lipgloss` são a única exceção aberta até agora, e o custo dela está medido no binário que se publica.** Ele sai de 9 para 25 módulos e de 10,4 para 11,2 MB — 16 módulos e 800 KB. É muito, e foi aceito por uma razão específica: o `discover` tem vinte e uma flags, e a primeira execução de alguém acontece contra um banco que não é dele, com outra pessoa olhando. Um guia que pergunta escopo, modo e destino — e que **termina imprimindo o comando que compôs** — é o que separa uma ferramenta poderosa de uma ferramenta usável na primeira tentativa.
+
+A primeira estimativa deste custo foi feita com arquivo sintético e build sem `strip`, e deu 28 módulos e 15,2 MB. Está registrado porque o erro foi na direção alarmista, e porque a lição vale: número de dependência se mede no artefato que sai, não numa aproximação.
+
+`bubbles` foi recusado apesar de vir da mesma família e custar só 3 módulos a mais. Ele traz `atotto/clipboard` por causa do campo de texto, e "por que esta ferramenta lê minha área de transferência" é uma pergunta que não se quer responder num issue — a resposta honesta, que é dependência transitiva, não convence quem está decidindo se aponta a ferramenta para produção. Lista e campo de texto são escritos aqui, sobre os eventos de tecla que o `bubbletea` já entrega.
+
+Nada disso vale para o resto do binário: as camadas que leem catálogo, inferem, validam e reportam continuam sem dependência de interface, e `pgfathom discover` funciona igual num terminal e num pipe.
 
 ## Arquitetura
 
