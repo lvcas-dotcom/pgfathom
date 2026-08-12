@@ -22,6 +22,7 @@ import (
 // opposite failure mode, which is why that one is not duplicated at all.
 var knownFixtures = []string{
 	"clean_schema",
+	"composite_keys",
 	"inferable",
 	"no_constraints",
 	"not_valid_constraints",

@@ -1,4 +1,4 @@
-//go:build integration
+//go:build integration || benchmark
 
 package testutil
 
@@ -20,6 +20,11 @@ import (
 // depends on a newer catalog fails here instead of in a user's database.
 const PostgresImage = "postgres:13-alpine"
 
+// startupTimeout covers loading the init script, not just booting the server.
+// A corpus schema of a thousand tables takes minutes to apply, and a ceiling
+// tuned to the fixtures would turn that into a spurious failure.
+const startupTimeout = 10 * time.Minute
+
 // Postgres starts a throwaway server, loads a named fixture and returns a DSN.
 //
 // A real server is the only honest way to test catalog reading: a fake would
@@ -33,6 +38,15 @@ func Postgres(t *testing.T, fixture string) string {
 // test can assert behaviour against a version the tool does not support.
 func PostgresImageDSN(t *testing.T, image, fixture string) string {
 	t.Helper()
+	return PostgresScript(t, image, fixturePath(t, fixture))
+}
+
+// PostgresScript is Postgres loaded from an SQL file named by absolute path,
+// which is how the benchmark harness loads a corpus schema that does not live
+// in testdata. Loading a corpus schema can take minutes, so the startup ceiling
+// is generous here in a way the fixture path never needs.
+func PostgresScript(t *testing.T, image, script string) string {
+	t.Helper()
 
 	ctx := context.Background()
 
@@ -40,11 +54,11 @@ func PostgresImageDSN(t *testing.T, image, fixture string) string {
 		postgres.WithDatabase("pgfathom_test"),
 		postgres.WithUsername("pgfathom_test"),
 		postgres.WithPassword("pgfathom_test"),
-		postgres.WithInitScripts(fixturePath(t, fixture)),
+		postgres.WithInitScripts(script),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").
 				WithOccurrence(2).
-				WithStartupTimeout(2*time.Minute),
+				WithStartupTimeout(startupTimeout),
 		),
 	)
 	if err != nil {

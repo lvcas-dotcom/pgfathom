@@ -187,8 +187,8 @@ func TestExoticIdentifiersValidate(t *testing.T) {
 	f, ctx := setup(t)
 
 	exotic := []model.Candidate{{
-		Child:  model.ColumnRef{Schema: "public", Table: "Empenho 2024", Column: "unidade gestora"},
-		Parent: model.ColumnRef{Schema: "public", Table: "Unidade Gestora", Column: "id"},
+		Child:  model.SingleKey("public", "Empenho 2024", "unidade gestora"),
+		Parent: model.SingleKey("public", "Unidade Gestora", "id"),
 	}}
 
 	res, err := validate.Run(ctx, f.pool, f.schemas, exotic, validate.Options{Full: true})

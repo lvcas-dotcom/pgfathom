@@ -35,9 +35,9 @@ func validated(method model.ValidationMethod, notNull, distinct, orphanRows, orp
 	}
 }
 
-func rel(table, column, parent string) (model.ColumnRef, model.ColumnRef) {
-	return model.ColumnRef{Schema: "public", Table: table, Column: column},
-		model.ColumnRef{Schema: "public", Table: parent, Column: "id"}
+func rel(table, column, parent string) (model.KeyRef, model.KeyRef) {
+	return model.SingleKey("public", table, column),
+		model.SingleKey("public", parent, "id")
 }
 
 func verdictCandidate(table, column, parent string, verdict model.Verdict, v *model.Validation, reason string) model.Candidate {
@@ -272,5 +272,102 @@ func TestEmphasisIsOptInAndOffByDefault(t *testing.T) {
 	}
 	if ansi.ReplaceAllString(colored, "") != plain {
 		t.Error("emphasis may only add escapes; the text itself must be identical")
+	}
+}
+
+// compositeKey renders the arity-n side of the report, which the fixtures above
+// cannot: the DDL column lists, the tuple anti-join, the constraint name built
+// from every column, and the rows MATCH SIMPLE exempts.
+func compositeResult() *model.Result {
+	r := model.NewResult(goldenVersion, "pt-br", goldenTime(),
+		model.Coverage{TablesTotal: 3, TablesAnalyzed: 3, CandidatesFound: 4, CandidatesValidated: 2})
+	r.ServerVersion = goldenServer
+	r.Duration = goldenDuration
+	r.Schemas = compositeSchemas()
+
+	child := model.KeyRef{Schema: "public", Table: "item", Columns: []string{"empresa_id", "nota_numero"}}
+	parent := model.KeyRef{Schema: "public", Table: "nota", Columns: []string{"empresa_id", "numero"}}
+
+	confirmed := validated(model.MethodFull, 1_284_000, 48_120, 0, 0)
+	confirmed.PartialNullRows = 317
+
+	broken := validated(model.MethodFull, 812_400, 31_002, 1284, 12)
+
+	r.Candidates = []model.Candidate{
+		{
+			Child:  child,
+			Parent: parent,
+			Signals: []model.Signal{
+				{Kind: model.SigCompositeArity, Weight: 0.15, Detail: "public.nota"},
+				{Kind: model.SigIdenticalType, Weight: 0.25, Detail: "int8, int8"},
+				{Kind: model.SigUniqueTarget, Weight: 0.20, Detail: "public.nota"},
+			},
+			MetaScore:  0.60,
+			Validation: confirmed,
+			Verdict:    model.VerdictConfirmed,
+		},
+		{
+			Child:  model.KeyRef{Schema: "public", Table: "rateio", Columns: []string{"nota_empresa_id", "nota_numero"}},
+			Parent: parent,
+			Signals: []model.Signal{
+				{Kind: model.SigExactName, Weight: 0.30, Detail: "nota"},
+				{Kind: model.SigCompositeArity, Weight: 0.15, Detail: "public.nota"},
+				{Kind: model.SigIdenticalType, Weight: 0.25, Detail: "int8, int8"},
+			},
+			MetaScore:  0.70,
+			Validation: broken,
+			Verdict:    model.VerdictBroken,
+		},
+	}
+
+	r.Findings = []model.Finding{{
+		Kind:   model.FindingUnsupportedTarget,
+		Object: "public.aditivo.(empresa_id, ano)",
+		Detail: "only part of the target's composite key has a counterpart (public.contrato): 2 of 3 positions",
+	}}
+
+	return r
+}
+
+// compositeSchemas gives item an index leading with its key and rateio none, so
+// one relationship gets the index suggestion and the other does not.
+func compositeSchemas() []model.Schema {
+	return []model.Schema{{
+		Name: "public",
+		Tables: []model.Table{
+			{
+				Schema: "public", Name: "item",
+				Columns:    []model.Column{{Name: "empresa_id"}, {Name: "nota_numero"}, {Name: "sequencia"}},
+				PrimaryKey: []string{"empresa_id", "nota_numero", "sequencia"},
+				Indexes: []model.Index{{
+					Name: "item_pkey", Primary: true, Unique: true,
+					Columns: []string{"empresa_id", "nota_numero", "sequencia"},
+				}},
+			},
+			{
+				Schema: "public", Name: "rateio",
+				Columns:    []model.Column{{Name: "id"}, {Name: "nota_empresa_id"}, {Name: "nota_numero"}},
+				PrimaryKey: []string{"id"},
+				Indexes:    []model.Index{{Name: "rateio_pkey", Columns: []string{"id"}, Primary: true, Unique: true}},
+			},
+			{
+				Schema: "public", Name: "nota",
+				Columns:    []model.Column{{Name: "empresa_id"}, {Name: "numero"}},
+				PrimaryKey: []string{"empresa_id", "numero"},
+			},
+		},
+	}}
+}
+
+func TestCompositeGolden(t *testing.T) {
+	r := compositeResult()
+	artifacts := report.DiscoverArtifacts(r)
+
+	for name, content := range map[string]string{
+		"discover_composite":      renderDiscover(t, goldenView(r, stageFull)),
+		"sql_confirmed_composite": artifactByName(t, artifacts, report.FileConfirmed).Content,
+		"sql_broken_composite":    artifactByName(t, artifacts, report.FileBroken).Content,
+	} {
+		t.Run(name, func(t *testing.T) { testutil.Golden(t, name, content) })
 	}
 }

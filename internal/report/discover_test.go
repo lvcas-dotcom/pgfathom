@@ -12,8 +12,8 @@ import (
 
 func candidate(child, parent string, score float64, signals ...model.SignalKind) model.Candidate {
 	c := model.Candidate{
-		Child:     model.ColumnRef{Schema: "public", Table: "pedido", Column: child},
-		Parent:    model.ColumnRef{Schema: "public", Table: parent, Column: "id"},
+		Child:     model.SingleKey("public", "pedido", child),
+		Parent:    model.SingleKey("public", parent, "id"),
 		MetaScore: score,
 		Verdict:   model.VerdictUnvalidated,
 	}

@@ -88,8 +88,8 @@ func TestSampleFractionIsBounded(t *testing.T) {
 
 func TestQueryQuotesExoticIdentifiers(t *testing.T) {
 	c := model.Candidate{
-		Child:  model.ColumnRef{Schema: "public", Table: "Ordem Servico", Column: "unidade_id"},
-		Parent: model.ColumnRef{Schema: "public", Table: `uni"dade`, Column: "id"},
+		Child:  model.SingleKey("public", "Ordem Servico", "unidade_id"),
+		Parent: model.SingleKey("public", `uni"dade`, "id"),
 	}
 
 	q := buildQuery(c, sampleSpec{kind: sampleNone})
@@ -106,13 +106,59 @@ func TestQueryQuotesExoticIdentifiers(t *testing.T) {
 // server would catch.
 func TestSampleClauseFollowsTheAlias(t *testing.T) {
 	c := model.Candidate{
-		Child:  model.ColumnRef{Schema: "public", Table: "pedido", Column: "cliente_id"},
-		Parent: model.ColumnRef{Schema: "public", Table: "cliente", Column: "id"},
+		Child:  model.SingleKey("public", "pedido", "cliente_id"),
+		Parent: model.SingleKey("public", "cliente", "id"),
 	}
 
 	q := buildQuery(c, sampleSpec{kind: sampleBernoulli, percent: 12.5, seed: 42})
 
 	if !strings.Contains(q, `"pedido" AS c TABLESAMPLE BERNOULLI (12.5000) REPEATABLE (42)`) {
 		t.Errorf("sample clause misplaced or malformed:\n%s", q)
+	}
+}
+
+func TestCompositeQueryAggregatesByTuple(t *testing.T) {
+	c := model.Candidate{
+		Child:  model.KeyRef{Schema: "public", Table: "item", Columns: []string{"empresa_id", "nota_numero"}},
+		Parent: model.KeyRef{Schema: "public", Table: "nota", Columns: []string{"empresa_id", "numero"}},
+	}
+
+	q := buildQuery(c, sampleSpec{kind: sampleNone})
+
+	for _, want := range []string{
+		`c."empresa_id" AS v1`,
+		`c."nota_numero" AS v2`,
+		"GROUP BY 1, 2",
+		`p."empresa_id" = cv.v1 AND p."numero" = cv.v2`,
+		"num_nulls(v1, v2) = 0",
+		"num_nulls(v1, v2) BETWEEN 1 AND 1",
+	} {
+		if !strings.Contains(q, want) {
+			t.Errorf("query must contain %q; got:\n%s", want, q)
+		}
+	}
+
+	// Concatenating the key would collide distinct tuples and push a user value
+	// through a text expression, which is the one thing this layer may not do.
+	for _, forbidden := range []string{"||", "concat", "row("} {
+		if strings.Contains(q, forbidden) {
+			t.Errorf("the key must travel as columns, never through %q:\n%s", forbidden, q)
+		}
+	}
+}
+
+// TestSingleColumnKeyCannotHaveExemptRows pins the arithmetic that makes the
+// MATCH SIMPLE count a non-special case: at arity one the filter is empty by
+// construction, not by a branch.
+func TestSingleColumnKeyCannotHaveExemptRows(t *testing.T) {
+	c := model.Candidate{
+		Child:  model.SingleKey("public", "pedido", "cliente_id"),
+		Parent: model.SingleKey("public", "cliente", "id"),
+	}
+
+	q := buildQuery(c, sampleSpec{kind: sampleNone})
+
+	if !strings.Contains(q, "num_nulls(v1) BETWEEN 1 AND 0") {
+		t.Errorf("the exempt filter must be unsatisfiable at arity one:\n%s", q)
 	}
 }

@@ -150,6 +150,12 @@ Harness do corpus: carregar schema público, remover todas as FKs declaradas, ro
 
 **Critério de saída.** Zero falso positivo confirmado em todo o corpus. Se houver um, ele vira bug bloqueante antes do release, não nota de rodapé.
 
+**Como saiu.** Em quatro changes, e a ordem entre elas foi a lição. Chave composta primeiro; o harness depois, que mediu a primeira e apontou que ela não alcançava a forma canônica de chave composta; a correção em seguida, com o número que a justificou; e a distribuição por último.
+
+O corpus encolheu de cinco schemas para dois: só GitLab e Discourse publicam SQL carregável, e os outros três exigem subir a aplicação. O que sobrou é maior do que o previsto — o GitLab tem 1.857 chaves declaradas, quase o dobro do maior banco privado medido.
+
+O critério de saída não é verificável no corpus público, e isso foi descoberto ao construí-lo: schema sem dados não confirma nada, e num banco real uma confirmação não declarada é indistinguível do achado que a ferramenta existe para produzir. Ele continua verificado onde é decidível, nas fixtures, e o relatório publicado diz isso em vez de deixar entender outra coisa.
+
 ---
 
 ## Depois do v0.1

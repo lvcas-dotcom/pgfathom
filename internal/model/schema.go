@@ -38,10 +38,6 @@ type Table struct {
 // Ref returns the schema-qualified name.
 func (t Table) Ref() string { return t.Schema + "." + t.Name }
 
-// HasSingleColumnPK reports whether the primary key is exactly one column,
-// the only shape single-column inference can target.
-func (t Table) HasSingleColumnPK() bool { return len(t.PrimaryKey) == 1 }
-
 // Column looks up a column by name. The second result is false when absent.
 func (t Table) Column(name string) (Column, bool) {
 	for _, c := range t.Columns {
@@ -55,8 +51,32 @@ func (t Table) Column(name string) (Column, bool) {
 // IsIndexedLeading reports whether an index has the column in leading position,
 // which is what makes it usable for a foreign key lookup.
 func (t Table) IsIndexedLeading(column string) bool {
-	for _, idx := range t.Indexes {
-		if len(idx.Columns) > 0 && strings.EqualFold(idx.Columns[0], column) {
+	return IndexLeads(t.Indexes, []string{column})
+}
+
+// IndexLeads reports whether some index opens with the given columns, in the
+// given order. A wider index counts, because the leading columns are what the
+// lookup uses; one over the same columns in another order does not.
+//
+// One owner for the rule: inference reads it to score a candidate and the SQL
+// artifacts read it to decide whether to suggest an index, and the two
+// disagreeing would suggest an index that already exists.
+func IndexLeads(indexes []Index, columns []string) bool {
+	if len(columns) == 0 {
+		return false
+	}
+	for _, idx := range indexes {
+		if len(idx.Columns) < len(columns) {
+			continue
+		}
+		match := true
+		for i, want := range columns {
+			if !strings.EqualFold(idx.Columns[i], want) {
+				match = false
+				break
+			}
+		}
+		if match {
 			return true
 		}
 	}
@@ -80,7 +100,9 @@ type Column struct {
 	Comment  string `json:"comment,omitempty"`
 }
 
-// ColumnRef points at one column of one table.
+// ColumnRef points at one column of one table. It is the right unit where the
+// subject really is a single column: planner statistics are per column, and an
+// equality mined from SQL relates two of them.
 type ColumnRef struct {
 	Schema string `json:"schema"`
 	Table  string `json:"table"`
@@ -92,6 +114,52 @@ func (r ColumnRef) String() string { return r.Schema + "." + r.Table + "." + r.C
 
 // TableRef renders the owning table as schema.table.
 func (r ColumnRef) TableRef() string { return r.Schema + "." + r.Table }
+
+// KeyRef points at a key of one or more columns of one table. Arity one is the
+// ordinary case of this type rather than a type of its own: a second
+// representation for the scalar case would eventually be read by a consumer
+// holding a composite key, and that consumer would emit half a key in silence.
+type KeyRef struct {
+	Schema string `json:"schema"`
+	Table  string `json:"table"`
+
+	// Columns are in key order, and the order is part of the key's identity. A
+	// foreign key matches position by position, so a reordered list links the
+	// wrong columns without any syntax error to notice.
+	Columns []string `json:"columns"`
+}
+
+// SingleKey builds the arity-one key.
+func SingleKey(schema, table, column string) KeyRef {
+	return KeyRef{Schema: schema, Table: table, Columns: []string{column}}
+}
+
+// String renders the key as schema.table.column, and as
+// schema.table.(a, b) once there is more than one column.
+func (r KeyRef) String() string {
+	if len(r.Columns) == 1 {
+		return r.Schema + "." + r.Table + "." + r.Columns[0]
+	}
+	return r.Schema + "." + r.Table + ".(" + strings.Join(r.Columns, ", ") + ")"
+}
+
+// TableRef renders the owning table as schema.table.
+func (r KeyRef) TableRef() string { return r.Schema + "." + r.Table }
+
+// Arity is how many columns the key spans.
+func (r KeyRef) Arity() int { return len(r.Columns) }
+
+// Composite reports whether the key spans more than one column.
+func (r KeyRef) Composite() bool { return len(r.Columns) > 1 }
+
+// ColumnRefs expands the key into one reference per column, in key order.
+func (r KeyRef) ColumnRefs() []ColumnRef {
+	out := make([]ColumnRef, 0, len(r.Columns))
+	for _, c := range r.Columns {
+		out = append(out, ColumnRef{Schema: r.Schema, Table: r.Table, Column: c})
+	}
+	return out
+}
 
 // ForeignKey is a constraint that exists in the catalog. That is not the same
 // as a guarantee of integrity: see Validated.

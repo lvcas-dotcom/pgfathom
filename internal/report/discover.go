@@ -81,6 +81,7 @@ func Discover(w io.Writer, v DiscoverView) error {
 		writeDiscarded(&b, e, v.Discarded)
 	}
 
+	writeExemptions(&b, e, r)
 	writeDetection(&b, v)
 	writeObservations(&b, e, r.Findings)
 	writeTally(&b, e, r, len(v.Discarded))
@@ -226,6 +227,36 @@ func writeTally(b *strings.Builder, e Emphasis, r *model.Result, discarded int) 
 	fmt.Fprintf(b, "  %s\n", e.Bold(line))
 }
 
+// writeExemptions says how many rows the constraints under discussion would
+// never check. MATCH SIMPLE lets a row with a NULL in part of the key through,
+// and a containment figure that never mentions them reads as though they had
+// been examined and passed.
+func writeExemptions(b *strings.Builder, e Emphasis, r *model.Result) {
+	var rows int64
+	keys := 0
+
+	for _, c := range r.Candidates {
+		if c.Validation != nil && c.Validation.PartialNullRows > 0 {
+			rows += c.Validation.PartialNullRows
+			keys++
+		}
+	}
+	if keys == 0 {
+		return
+	}
+
+	fmt.Fprintf(b, "  %s\n\n", e.Dim(fmt.Sprintf(
+		"%d rows across %s carry a NULL in part of the key; MATCH SIMPLE exempts them from the constraint",
+		rows, plural(keys, "composite key", "composite keys"))))
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, one)
+	}
+	return fmt.Sprintf("%d %s", n, many)
+}
+
 func writeObservations(b *strings.Builder, e Emphasis, findings []model.Finding) {
 	relevant := make([]model.Finding, 0, len(findings))
 	for _, f := range findings {
@@ -238,7 +269,7 @@ func writeObservations(b *strings.Builder, e Emphasis, findings []model.Finding)
 	}
 
 	fmt.Fprintf(b, "  %s\n", e.Bold(fmt.Sprintf(
-		"NOT ANALYZED — recognized, out of scope for this version  (%d)", len(relevant))))
+		"NOT ANALYZED — recognized, and no hypothesis raised  (%d)", len(relevant))))
 	fmt.Fprintf(b, "  %s\n", strings.Repeat("─", ruleWidth))
 
 	tw := tabwriter.NewWriter(b, 0, 0, 2, ' ', 0)

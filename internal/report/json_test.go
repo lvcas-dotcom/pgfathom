@@ -97,9 +97,28 @@ func contractResult() *model.Result {
 		},
 	}}
 
-	r.Candidates = []model.Candidate{verdictCandidate("pedido", "cliente_id", "cliente",
-		model.VerdictBroken, validated(model.MethodFull, 1_284_000, 48_120, 1284, 12),
-		"orphan counts are a floor: this table was sampled")}
+	// A composite candidate carrying exempt rows, so the arity-n shape and
+	// partial_null_rows are both in the frozen contract. A path that only
+	// materializes when someone sets the field would break this test long after
+	// the decision that set it.
+	composite := validated(model.MethodFull, 812_400, 31_002, 1284, 12)
+	composite.PartialNullRows = 317
+
+	r.Candidates = []model.Candidate{
+		verdictCandidate("pedido", "cliente_id", "cliente",
+			model.VerdictBroken, validated(model.MethodFull, 1_284_000, 48_120, 1284, 12),
+			"orphan counts are a floor: this table was sampled"),
+		{
+			Child:  model.KeyRef{Schema: "public", Table: "item", Columns: []string{"empresa_id", "nota_numero"}},
+			Parent: model.KeyRef{Schema: "public", Table: "nota", Columns: []string{"empresa_id", "numero"}},
+			Signals: []model.Signal{
+				{Kind: model.SigCompositeArity, Weight: 0.15, Detail: "public.nota"},
+			},
+			MetaScore:  0.60,
+			Validation: composite,
+			Verdict:    model.VerdictBroken,
+		},
+	}
 	r.Discarded = []model.Candidate{verdictCandidate("log", "status_id", "status",
 		model.VerdictRejected, nil, "low containment: the name match is a coincidence")}
 	r.Findings = []model.Finding{{
@@ -145,12 +164,15 @@ func TestDiscardedNeverSitBesideSurvivors(t *testing.T) {
 		t.Fatalf("JSON: %v", err)
 	}
 
+	type side struct {
+		Columns []string `json:"columns"`
+	}
 	var doc struct {
 		Candidates []struct {
-			Child struct{ Column string } `json:"child"`
+			Child side `json:"child"`
 		} `json:"candidates"`
 		Discarded []struct {
-			Child struct{ Column string } `json:"child"`
+			Child side `json:"child"`
 		} `json:"discarded"`
 	}
 	if err := json.Unmarshal(b.Bytes(), &doc); err != nil {
@@ -161,8 +183,10 @@ func TestDiscardedNeverSitBesideSurvivors(t *testing.T) {
 		t.Fatalf("expected the discarded candidate in its own field, got %d", len(doc.Discarded))
 	}
 	for _, c := range doc.Candidates {
-		if c.Child.Column == "status_id" {
-			t.Error("a discarded candidate must not appear among the survivors")
+		for _, col := range c.Child.Columns {
+			if col == "status_id" {
+				t.Error("a discarded candidate must not appear among the survivors")
+			}
 		}
 	}
 }

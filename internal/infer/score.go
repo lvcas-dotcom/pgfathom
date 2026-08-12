@@ -30,6 +30,34 @@ const (
 	penaltyGenericDomain   = -0.30
 )
 
+// Arity weights. A key of four columns is not twice as convincing as one of
+// two — the second column already removes most of the coincidence — so the
+// increment shrinks and the whole thing is capped.
+//
+// The cap matters more than the base. Sitting on top of a candidate that
+// already carries name, type and uniqueness, a generous arity weight would
+// saturate every composite at the ceiling, and a score pinned at 1.0
+// discriminates nothing exactly where the risk of a wrong confirmation is
+// highest. Estimates, like the rest of this file, revisited with the corpus.
+const (
+	weightArityBase = 0.15 // two columns
+	weightArityStep = 0.05 // per column beyond the second
+	weightArityMax  = 0.30
+)
+
+// arityWeight is the weight of a whole key agreeing at once. A single-column
+// key agrees about nothing extra, and weighs nothing extra.
+func arityWeight(n int) float64 {
+	if n < 2 {
+		return 0
+	}
+	w := weightArityBase + float64(n-2)*weightArityStep
+	if w > weightArityMax {
+		return weightArityMax
+	}
+	return w
+}
+
 // DefaultMinScore is the cut below which a candidate never reaches validation.
 //
 // It is an estimate, not a measurement: the honest calibration needs the

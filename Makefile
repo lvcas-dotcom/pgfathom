@@ -12,7 +12,7 @@ LDFLAGS := -s -w \
 # CGO_ENABLED=0 não é otimização, é requisito: cross-compile precisa ser trivial.
 export CGO_ENABLED := 0
 
-.PHONY: build test test-integration lint fmt cover crosscheck clean help
+.PHONY: build test test-integration corpus benchmark lint fmt cover crosscheck release-check clean help
 
 ## build: compila o binário em ./bin
 build:
@@ -27,9 +27,19 @@ test:
 test-integration:
 	go test -tags=integration -timeout=20m ./...
 
-## lint: golangci-lint
+## corpus: baixa e confere os schemas do benchmark (única etapa que usa rede)
+corpus:
+	go test -tags=benchmark -timeout=15m -v -run TestFetchCorpus ./internal/bench/...
+
+## benchmark: mede a taxa de recuperação no corpus e escreve docs/benchmark
+benchmark:
+	go test -tags=benchmark -timeout=90m -v -run TestCorpus ./internal/bench/...
+
+## lint: golangci-lint em todas as etiquetas de build
 lint:
 	golangci-lint run
+	golangci-lint run --build-tags integration
+	golangci-lint run --build-tags benchmark
 
 ## fmt: formata e organiza imports
 fmt:
@@ -49,6 +59,25 @@ crosscheck:
 		GOOS=$$os GOARCH=$$arch go build -trimpath -o /dev/null ./cmd/$(BINARY) || exit 1; \
 	done
 	@echo "build cruzado ok"
+
+## release-check: prova que o caminho de release produz binário carimbado
+#
+# O carimbo vem de duas configurações que precisam concordar sobre três nomes
+# de variável — esta aqui e a do goreleaser. A comparação é por igualdade, e não
+# por procurar "unknown", porque o binário nunca diz "unknown": buildinfo cai
+# para o que o toolchain gravou e responde uma pseudo-versão do commit. É um
+# bom padrão para `go install` e é exatamente o que esconderia um ldflag
+# quebrado, publicando binário cuja versão não é a da tag.
+release-check:
+	goreleaser check
+	goreleaser build --snapshot --clean --single-target --output dist/pgfathom-check
+	@want=$$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' dist/metadata.json); \
+	got=$$(./dist/pgfathom-check version | head -1 | awk '{print $$2}'); \
+	if [ "$$got" != "$$want" ]; then \
+		echo "FALHA: o release carimbaria $$want e o binário responde $$got"; \
+		exit 1; \
+	fi; \
+	echo "carimbo ok: $$got"
 
 ## clean: remove artefatos de build
 clean:

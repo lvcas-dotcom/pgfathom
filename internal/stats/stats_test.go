@@ -1,6 +1,7 @@
 package stats_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -29,8 +30,8 @@ func schemaOf(tables ...model.Table) []model.Schema {
 // candidate builds a scored survivor the way generation would hand it over.
 func candidate(child, parent model.ColumnRef, score float64) model.Candidate {
 	return model.Candidate{
-		Child:     child,
-		Parent:    parent,
+		Child:     model.SingleKey(child.Schema, child.Table, child.Column),
+		Parent:    model.SingleKey(parent.Schema, parent.Table, parent.Column),
 		Signals:   []model.Signal{{Kind: model.SigExactName, Weight: score}},
 		MetaScore: score,
 		Verdict:   model.VerdictUnvalidated,
@@ -208,5 +209,120 @@ func TestFunnelBalances(t *testing.T) {
 	}
 	if res.NoStats != 1 || len(res.Rejected) != 1 {
 		t.Errorf("funnel = rejected %d, nostats %d; want 1 and 1", len(res.Rejected), res.NoStats)
+	}
+}
+
+// compositeCandidate builds a two-column hypothesis the way generation hands
+// one over.
+func compositeCandidate(childTable string, childCols []string, parentTable string, parentCols []string) model.Candidate {
+	return model.Candidate{
+		Child:     model.KeyRef{Schema: "public", Table: childTable, Columns: childCols},
+		Parent:    model.KeyRef{Schema: "public", Table: parentTable, Columns: parentCols},
+		Signals:   []model.Signal{{Kind: model.SigCompositeArity, Weight: 0.15}},
+		MetaScore: 0.6,
+		Verdict:   model.VerdictUnvalidated,
+	}
+}
+
+// TestTupleCardinalityUsesTheLowerBound covers the only inequality available
+// without extended statistics: a tuple is at least as varied as its most varied
+// column. One column alone clearing the margin is enough to reject.
+func TestTupleCardinalityUsesTheLowerBound(t *testing.T) {
+	schemas := schemaOf(table("item", 100_000), table("nota", 100))
+
+	st := stats.NewStats()
+	st.Add(ref("item", "empresa_id"), present(3))  // narrow on its own
+	st.Add(ref("item", "numero"), present(90_000)) // this one is impossible
+	st.Add(ref("nota", "empresa_id"), present(10))
+	st.Add(ref("nota", "numero"), present(100))
+
+	c := compositeCandidate("item", []string{"empresa_id", "numero"}, "nota", []string{"empresa_id", "numero"})
+	res := stats.Evaluate(schemas, []model.Candidate{c}, st, stats.Options{})
+
+	if len(res.Rejected) != 1 {
+		t.Fatalf("rejected %d candidates, want 1: the floor already exceeds the margin", len(res.Rejected))
+	}
+	if !strings.Contains(res.Rejected[0].Reason, "numero") {
+		t.Errorf("reason = %q, want the column that produced the floor", res.Rejected[0].Reason)
+	}
+}
+
+// TestTupleWithoutStatisticsHasNoOpinion is the layer's central discipline at
+// arity n: no estimate anywhere means no penalty and no rejection, with the
+// silence on the record.
+func TestTupleWithoutStatisticsHasNoOpinion(t *testing.T) {
+	schemas := schemaOf(table("item", 100_000), table("nota", 100))
+
+	c := compositeCandidate("item", []string{"empresa_id", "numero"}, "nota", []string{"empresa_id", "numero"})
+	res := stats.Evaluate(schemas, []model.Candidate{c}, stats.NewStats(), stats.Options{})
+
+	if len(res.Kept) != 1 || res.NoStats != 1 {
+		t.Fatalf("kept %d with %d unstatted, want 1 and 1", len(res.Kept), res.NoStats)
+	}
+	kept := res.Kept[0]
+	if !kept.HasSignal(model.SigStatsUnavailable) {
+		t.Error("an absent penalty with no record is indistinguishable from approval")
+	}
+	if kept.MetaScore != 0.6 {
+		t.Errorf("score moved to %.2f: no statistics means no opinion", kept.MetaScore)
+	}
+}
+
+// TestDisjointRangePenalizesOncePerKey keeps arity from deciding a score by
+// volume: a key disjoint in two positions is one fact.
+func TestDisjointRangePenalizesOncePerKey(t *testing.T) {
+	schemas := schemaOf(table("item", 1000), table("nota", 100_000))
+
+	st := stats.NewStats()
+	for _, col := range []string{"empresa_id", "numero"} {
+		st.Add(ref("item", col), present(10))
+		st.Add(ref("nota", col), present(10))
+		st.AddBounds(ref("item", col), 900_000, 999_999)
+		st.AddBounds(ref("nota", col), 1, 500)
+	}
+
+	c := compositeCandidate("item", []string{"empresa_id", "numero"}, "nota", []string{"empresa_id", "numero"})
+	res := stats.Evaluate(schemas, []model.Candidate{c}, st, stats.Options{})
+
+	if len(res.Kept) != 1 {
+		t.Fatalf("kept %d, want 1: a disjoint range penalizes and never rejects", len(res.Kept))
+	}
+	seen := 0
+	for _, s := range res.Kept[0].Signals {
+		if s.Kind == model.SigRangeViolation {
+			seen++
+		}
+	}
+	if seen != 1 {
+		t.Errorf("range signal emitted %d times, want once", seen)
+	}
+}
+
+// TestNoBoundValueSurvivesTheCompositePath extends the leak scan to arity n:
+// two positions mean two pairs of endpoints, and the reason strings grew.
+func TestNoBoundValueSurvivesTheCompositePath(t *testing.T) {
+	const plantedLow, plantedHigh = 52931847011, 52931847999
+
+	schemas := schemaOf(table("item", 10_000), table("nota", 100))
+
+	st := stats.NewStats()
+	for _, col := range []string{"empresa_id", "numero"} {
+		st.Add(ref("item", col), present(250)) // beyond margin: forces the rejection path
+		st.Add(ref("nota", col), present(100))
+		st.AddBounds(ref("item", col), plantedLow, plantedHigh)
+		st.AddBounds(ref("nota", col), plantedLow, plantedHigh)
+	}
+
+	c := compositeCandidate("item", []string{"empresa_id", "numero"}, "nota", []string{"empresa_id", "numero"})
+	res := stats.Evaluate(schemas, []model.Candidate{c}, st, stats.Options{})
+
+	out, err := json.Marshal(res)
+	if err != nil {
+		t.Fatalf("serializing: %v", err)
+	}
+	for _, planted := range []string{"52931847011", "52931847999"} {
+		if strings.Contains(string(out), planted) {
+			t.Errorf("the composite path leaked histogram bound %s", planted)
+		}
 	}
 }
