@@ -455,12 +455,17 @@ No naming heuristic reaches these, by construction.
 
 ### Coverage is part of the metric
 
-The numbers above were measured while a quarter of the municipal schema — 86 tables of 338,
-all keyed on more than one column — was out of reach. That fraction is why composite keys
-and the benchmark corpus land in the same phase: a recall quoted without it would be
+The first measurements were taken while a quarter of the municipal schema — 86 tables of
+338, all keyed on more than one column — was out of reach. That fraction is why composite
+keys and the benchmark corpus land in the same phase: a recall quoted without it would be
 misleading by omission, and quoting it against a tool that has since grown would be
-misleading in the other direction. **The table above will be remeasured with composite
-support before any of it is published as a release number.**
+misleading in the other direction.
+
+**That is why the public corpus, and not those first measurements, is what this project
+publishes as a release number.** The early figures stand as history: taken before composite
+support existed, against schemas that cannot be shared, and the reason naming detection was
+built at all. Every number quoted anywhere else in this README comes from the corpus,
+measured with the tool as it ships and re-runnable with `make benchmark`.
 
 What does not change is that every run states its own coverage, as a proportion rather than
 a count: "91 tables skipped" reads as minor until you notice it is a quarter of the
