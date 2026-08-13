@@ -121,7 +121,7 @@ func runKeyProbeQuery(ctx context.Context, pool Beginner, query string, timeout 
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
 	if timeout > 0 {
-		if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", timeout.Milliseconds())); err != nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", statementTimeoutMillis(timeout))); err != nil {
 			return 0, 0, 0, err
 		}
 	}
