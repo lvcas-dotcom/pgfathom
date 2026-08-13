@@ -8,7 +8,7 @@ Versions follow [semantic versioning](https://semver.org/spec/v2.0.0.html). Whil
 the major version is `0`, the command-line surface and the JSON contract may
 change between minor versions; both are versioned and documented when they do.
 
-## [Unreleased]
+## [0.1.2] — 2026-08-13
 
 ### Fixed
 
@@ -102,5 +102,6 @@ These held from the first release and are covered by tests:
 - **Silence is never absence.** Every report states what was not analysed, so
   "nothing found" can never be confused with "nothing was looked at".
 
+[0.1.2]: https://github.com/lvcas-dotcom/pgfathom/releases/tag/v0.1.2
 [0.1.1]: https://github.com/lvcas-dotcom/pgfathom/releases/tag/v0.1.1
 [0.1.0]: https://github.com/lvcas-dotcom/pgfathom/releases/tag/v0.1.0
