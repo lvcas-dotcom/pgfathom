@@ -96,3 +96,19 @@ jobs:
           # the wrong one: the v0.1.0 release tried to publish itself as
           # v0.1.0-rc.2 and died on an asset that already existed.
           GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+
+      # The one published thing that can still be corrected, so it is checked
+      # after the fact rather than guessed at before. It exists because the
+      # mechanism failed silently once: the notes were extracted, passed, and
+      # dropped, and the release went out green with an empty body.
+      - name: a nota publicada é a nota escrita
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          first=$(grep -m1 . "$RELEASE_NOTES")
+          if ! gh release view "${{ github.ref_name }}" --json body -q .body | grep -qF "$first"; then
+            echo "::error::the published notes do not contain the CHANGELOG section that was passed"
+            gh release view "${{ github.ref_name }}" --json body -q .body
+            exit 1
+          fi
+          echo "published notes carry the written section"

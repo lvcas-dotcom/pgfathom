@@ -84,6 +84,15 @@ release-check:
 	@v=$$(sed -n 's/^## \[\([0-9][^]]*\)\].*/\1/p' CHANGELOG.md | head -1); \
 	./scripts/release-notes.sh "v$$v" > /dev/null; \
 	echo "release notes ok: $$v"
+# `--release-notes` is loaded by goreleaser's changelog pipe, so disabling that
+# pipe drops the flag on the floor: the notes never load, the release body comes
+# out as the footer alone, and nothing fails. v0.1.2 shipped that way.
+	@if grep -q -- "--release-notes" .github/workflows/release.yml && \
+	    sed -n "/^changelog:/,/^[a-z]/p" .goreleaser.yaml | grep -qE "^[[:space:]]+disable:[[:space:]]*true"; then \
+		echo "FAILED: the workflow passes --release-notes and .goreleaser.yaml disables the changelog stage that loads it"; \
+		exit 1; \
+	fi; \
+	echo "release notes wiring ok"
 
 ## image-check: prove the image builds for both platforms
 #

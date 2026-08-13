@@ -61,8 +61,20 @@ snapshot:
 # --release-notes in the workflow. A list of commits says what was touched;
 # whoever opens a release wants to know what changed for them. See
 # scripts/release-notes.sh.
+#
+# This stage stays ENABLED even though nothing here generates the notes, and
+# that is not an oversight. `--release-notes` is loaded by this pipe, so
+# disabling it drops the flag on the floor: the notes never load, the body comes
+# out as the footer alone, and the release still succeeds. v0.1.2 shipped that
+# way. The filters below are what the flag would otherwise fall back to.
 changelog:
-  disable: true
+  use: git
+  filters:
+    exclude:
+      - "^Merge pull request"
+      - "^chore: arquiva"
+      - "^docs:"
+      - "^test:"
 
 # A distribution package is the shortest path for the target user: a DBA on a
 # Linux server, with no Go and no Homebrew. The paths below are not our choice,
