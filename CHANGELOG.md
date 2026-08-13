@@ -8,7 +8,7 @@ Versions follow [semantic versioning](https://semver.org/spec/v2.0.0.html). Whil
 the major version is `0`, the command-line surface and the JSON contract may
 change between minor versions; both are versioned and documented when they do.
 
-## [Unreleased]
+## [0.1.2] — 2026-08-13
 
 ### Fixed
 
@@ -29,6 +29,11 @@ change between minor versions; both are versioned and documented when they do.
 - The example in the README is now a real run against a demo schema published in
   `docs/DEMO.md`, which reproduces it exactly. It used to be a mockup of output
   the tool does not produce.
+- The README says plainly which measurements are the published ones. It carried a
+  promise to remeasure the early figures "before any of it is published as a
+  release number" — composite support has shipped and release numbers have been
+  published since, from the public corpus, which is what that sentence was
+  waiting for.
 
 ## [0.1.1] — 2026-08-12
 
@@ -97,5 +102,6 @@ These held from the first release and are covered by tests:
 - **Silence is never absence.** Every report states what was not analysed, so
   "nothing found" can never be confused with "nothing was looked at".
 
+[0.1.2]: https://github.com/lvcas-dotcom/pgfathom/releases/tag/v0.1.2
 [0.1.1]: https://github.com/lvcas-dotcom/pgfathom/releases/tag/v0.1.1
 [0.1.0]: https://github.com/lvcas-dotcom/pgfathom/releases/tag/v0.1.0
