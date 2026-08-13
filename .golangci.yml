@@ -24,15 +24,15 @@ linters:
 
   exclusions:
     rules:
-      # Tabela de casos de teste é declarativa e longa por natureza.
+      # A table of test cases is declarative and long by nature.
       - path: _test\.go
         linters:
           - gocritic
 
-      # As fixtures são nomes de tabela e coluna em português e espanhol —
-      # `clientes`, `responsaveis`, `opcoes`. Um corretor ortográfico de inglês
-      # lê isso como erro de digitação, e é exatamente esse vocabulário que a
-      # ferramenta existe para entender.
+      # The fixtures are table and column names in Portuguese and Spanish —
+      # `clientes`, `responsaveis`, `opcoes`. An English spell checker reads
+      # those as typos, and that vocabulary is exactly what this tool exists to
+      # understand.
       - path: _test\.go
         linters:
           - misspell

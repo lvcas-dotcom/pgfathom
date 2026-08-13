@@ -4,11 +4,11 @@ on:
   push:
     tags: ["v*"]
 
-# Publicar é irreversível: tag apagada continua no cache de quem já baixou, e
-# versão republicada com conteúdo diferente é o que mais rápido destrói a
-# confiança numa ferramenta de infraestrutura. Então a suíte roda antes de o
-# goreleaser tocar em qualquer coisa, no mesmo job, e uma falha aborta sem
-# publicar nada.
+# Publishing is irreversible: a deleted tag survives in the cache of whoever
+# already downloaded it, and a version republished with different content is the
+# fastest way to destroy trust in an infrastructure tool. So the suite runs
+# before goreleaser touches anything, in the same job, and a failure aborts
+# without publishing.
 permissions:
   contents: write
   packages: write
@@ -23,9 +23,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # O goreleaser lê o histórico para resolver a versão e o commit que
-          # entram no binário, e um clone raso o deixaria pela metade sem dizer
-          # nada.
+          # goreleaser reads the history to resolve the version and commit
+          # that go into the binary, and a shallow clone would leave it half
+          # informed without saying so.
           fetch-depth: 0
 
       - uses: actions/setup-go@v5
@@ -33,14 +33,14 @@ jobs:
           go-version: stable
           check-latest: true
 
-      - name: instala golangci-lint
+      - name: install golangci-lint
         run: |
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
-      # A suíte de integração fica de fora: ela precisa de Docker dentro do
-      # runner e leva minutos, e o que ela protege já foi protegido no merge que
-      # produziu o commit sendo lançado.
+      # The integration suite stays out: it needs Docker inside the runner and
+      # takes minutes, and what it protects was already protected by the merge
+      # that produced the commit being released.
       - run: go test ./...
       - run: make lint
       - run: make crosscheck
@@ -48,25 +48,25 @@ jobs:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
-      - name: login no ghcr
+      - name: log in to ghcr
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # A escrita no tap vai por deploy key, escopada num repositório só. A chave
-      # é gravada num arquivo porque é um caminho que o goreleaser espera, não o
-      # conteúdo. Sem o segredo, a variável fica vazia e o canal do Homebrew é
-      # pulado — a variável é sempre definida para que o template não avalie uma
-      # chave que não existe. Ver docs/RELEASING.md.
-      - name: chave do tap
+      # Writing to the tap goes through a deploy key, scoped to one repository.
+      # The key is written to a file because goreleaser expects a path, not the
+      # contents. Without the secret the variable stays empty and the Homebrew
+      # channel is skipped — the variable is always defined so the template
+      # never evaluates a key that does not exist. See docs/RELEASING.md.
+      - name: tap key
         env:
           KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
         run: |
           if [ -z "$KEY" ]; then
             echo "HOMEBREW_TAP_KEY_PATH=" >> "$GITHUB_ENV"
-            echo "::notice::sem chave de deploy do tap: este release sai sem o canal do Homebrew"
+            echo "::notice::no tap deploy key: this release goes out without the Homebrew channel"
             exit 0
           fi
           path="$RUNNER_TEMP/homebrew_tap_key"
@@ -74,10 +74,10 @@ jobs:
           printf '%s\n' "$KEY" > "$path"
           echo "HOMEBREW_TAP_KEY_PATH=$path" >> "$GITHUB_ENV"
 
-      # A nota de release é escrita à mão no CHANGELOG e extraída daqui. Se a
-      # seção da versão não existe, isto falha antes de o goreleaser publicar
-      # qualquer coisa — publicar é irreversível, e nota vazia não se corrige.
-      - name: nota de release
+      # Release notes are written by hand in the CHANGELOG and extracted here.
+      # If the version has no section, this fails before goreleaser publishes
+      # anything — publishing is irreversible, and empty notes cannot be fixed.
+      - name: release notes
         run: |
           notes="$RUNNER_TEMP/release-notes.md"
           scripts/release-notes.sh "${{ github.ref_name }}" > "$notes"
@@ -89,9 +89,10 @@ jobs:
           args: release --clean --release-notes "${{ env.RELEASE_NOTES }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # A versão vem do ref que disparou o workflow, não de `git describe`.
-          # Quando um candidato e a versão final marcam o mesmo commit — o caso
-          # normal, se o candidato passou e nada mudou depois —, describe escolhe
-          # entre as duas tags e pode escolher a errada: o release de v0.1.0
-          # tentou publicar como v0.1.0-rc.2 e morreu em asset já existente.
+          # The version comes from the ref that triggered the workflow, not
+          # from `git describe`. When a candidate and the final version mark the
+          # same commit — the normal case, if the candidate passed and nothing
+          # changed after it — describe picks between the two tags and can pick
+          # the wrong one: the v0.1.0 release tried to publish itself as
+          # v0.1.0-rc.2 and died on an asset that already existed.
           GORELEASER_CURRENT_TAG: ${{ github.ref_name }}

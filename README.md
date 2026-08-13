@@ -17,10 +17,11 @@
 <p align="center">
   <a href="#the-problem">Problem</a> ·
   <a href="#what-it-does">What it does</a> ·
-  <a href="#scope">Scope</a> ·
+  <a href="#installing">Install</a> ·
+  <a href="#first-run">First run</a> ·
   <a href="#safety">Safety</a> ·
   <a href="#how-it-works">How it works</a> ·
-  <a href="#prior-art">Prior art</a> ·
+  <a href="#how-correctness-is-measured">Measurements</a> ·
   <a href="#roadmap">Roadmap</a>
 </p>
 
@@ -29,16 +30,15 @@
 `pgfathom` finds the relationships your database has but never declared — and proves them against the data instead of guessing from column names.
 
 > [!IMPORTANT]
-> **v0.1. Early, and measured.**
+> **v0.1.1. Early, and measured.**
 > `pgfathom audit` and `pgfathom discover` run end to end, verdicts and reviewable
 > `.sql` artifacts included, against real production schemas and against a
 > [public corpus](#the-public-corpus) anyone can re-run with `make benchmark`.
 > Recovery is around 61% on a 1,857-key schema, and the report says what that
 > number does not measure as plainly as what it does. What the tool never does is
-> write to your database. The design is specified in
-> [`docs/PGFATHOM.md`](docs/PGFATHOM.md), the phases in
-> [`docs/ROADMAP.md`](docs/ROADMAP.md). Terminal output shown below is the target
-> design, not a recording.
+> write to your database. The terminal output below is a real run against the
+> demo schema in [`docs/DEMO.md`](docs/DEMO.md), which you can reproduce in a
+> container in about a minute.
 
 ---
 
@@ -77,30 +77,35 @@ $ pgfathom discover --schema public
 ```
 
 ```
-  profile pt-br · sampled validation (100k rows/table) · 312 tables
 
-  BROKEN — the relationship is real, the integrity is not
-  ──────────────────────────────────────────────────────────────────────────
-  os_servico.resp_tecnico    → funcionario.id      99.7%    1,284 orphans
-  pedido.cliente_id          → cliente.id          99.9%       37 orphans
-  lancamento.conta_id        → conta.id            94.2%   11,903 orphans
+  pgfathom v0.1.1 · PostgreSQL 16.14 · profile pt-br · threshold 0.50
+  full validation — every row was examined; verdicts are conclusive
 
-  CONFIRMED — undeclared foreign key, no orphans found
-  ──────────────────────────────────────────────────────────────────────────
-  item_pedido.pedido_id      → pedido.id          100.0%        0 orphans
-  endereco.municipio_id      → municipio.id       100.0%        0 orphans
+  BROKEN — the relationship is real; its integrity is not  (1)
+  ────────────────────────────────────────────────────────────────────────────────────────────────
+  relation                                                rows   values  orphan rows  orphan values  examined  method
+  public.os_servico.resp_tecnico → public.funcionario.id  97.5%  60.0%   200          200            8.0k      full
 
-  WEAK — insufficient evidence to conclude
-  ──────────────────────────────────────────────────────────────────────────
-  documento.entidade_id      → entidade.id         41.0%   polymorphic pair
-                                                            detected
+  CONFIRMED — total containment, verified row by row  (2)
+  ────────────────────────────────────────────────────────────────────────────────────────────────
+  relation                                         rows    values  orphan rows  orphan values  examined  method
+  public.item_pedido.pedido_id → public.pedido.id  100.0%  100.0%  0            0              60.0k     full
+  public.pedido.cliente_id → public.cliente.id     100.0%  100.0%  0            0              20.0k     full
 
-  312 tables · 298 analyzed · 14 skipped (no SELECT privilege)
-  1,847 candidates · 226 validated · 3 timed out
+  WEAK — the data supports no conclusion either way  (0)
+  ────────────────────────────────────────────────────────────────────────────────────────────────
+  none
 
-  ! sampled run — nothing here is confirmed. orphan rows cluster on disk, which is
-    exactly what page-level sampling is worst at finding. re-run with --full to prove
-    absence.
+  UNVALIDATED — no evidence gathered; not the same as clean  (0)
+  ────────────────────────────────────────────────────────────────────────────────────────────────
+  none
+
+  Nothing detected from 6 tables and 1 declared key; the pt-br profile applies alone.
+
+  1 broken · 2 confirmed · 0 weak · 0 unvalidated · 0 discarded · 134ms
+  6 tables · 6 analyzed (100%)
+  stats prefilter: 3 checked · 0 rejected · 0 without statistics
+  ! statistics reset time unknown — usage counters carry no meaning
 ```
 
 Three verdicts, three different responses.
@@ -129,7 +134,7 @@ $ pgfathom discover --full --out ./findings
 
 ```
   findings/confirmed.sql   2
-  findings/broken.sql      3
+  findings/broken.sql      1
 
   Review every file before running any of it.
 ```
@@ -139,6 +144,53 @@ and the validation mode that produced it, and with the reminder that nothing ins
 meant to be run unread. DDL for a broken relationship stays commented out — it cannot pass
 while an orphan remains, and deciding what happens to an orphan row is a call about your
 domain, not one this tool is entitled to make.
+
+## Installing
+
+On Debian, Ubuntu, Fedora or RHEL, take the package for your architecture from the
+[releases](https://github.com/lvcas-dotcom/pgfathom/releases):
+
+```console
+$ sudo dpkg -i pgfathom_0.1.0_linux_amd64.deb     # or: sudo rpm -i ...linux_amd64.rpm
+$ pgfathom version
+```
+
+It installs the binary in `/usr/bin`, the licence and README under
+`/usr/share/doc/pgfathom/`, and shell completion for bash, zsh and fish. There is no apt or
+yum repository, so it does not update itself.
+
+With Go installed:
+
+```console
+$ go install github.com/lvcas-dotcom/pgfathom/cmd/pgfathom@latest
+```
+
+Note that this puts the binary in `$(go env GOPATH)/bin`, which is not on everyone's `PATH`,
+and that it reports its version but not its commit or build date — the module proxy carries no
+git metadata to stamp. The release binaries carry all three.
+
+Or take a binary from the [releases](https://github.com/lvcas-dotcom/pgfathom/releases)
+— linux, macOS and Windows, amd64 and arm64, static, no runtime to install — and
+check it against the `checksums.txt` published beside it. The artifacts are not
+signed; the checksum file is what exists today, and
+[`docs/RELEASING.md`](docs/RELEASING.md) says so where it can be found.
+
+On macOS, Homebrew works once the tap exists:
+
+```console
+$ brew install lvcas-dotcom/tap/pgfathom
+```
+
+That is a cask, so it is macOS only, and it clears the quarantine attribute on
+install because the binaries are not notarised — the cask says so when you
+install it, and [`docs/RELEASING.md`](docs/RELEASING.md) explains why.
+
+There is also a container image, on a base that carries root certificates
+because the tool opens a TLS connection to your server:
+
+```console
+$ docker run --rm ghcr.io/lvcas-dotcom/pgfathom:latest discover --dsn "$DSN"
+```
 
 ## First run
 
@@ -295,52 +347,6 @@ that matched is reported so scoring can tell an exact match from an aggressive o
 **Adding a profile for your language is the easiest possible contribution.** It needs no
 knowledge of the rest of the codebase — a TOML file and a table of test cases.
 
-## Prior art
-
-`pgfathom` is not new science, and says so.
-
-Containment is known in the data-profiling literature as an **inclusion dependency** — the
-automatically testable part of a foreign key. There is a mature body of algorithms for
-discovering them (SPIDER, BINDER, MIND), implemented in
-[Metanome](https://hpi.de/naumann/projects/repeatability/data-profiling/metanome-ind-algorithms.html).
-Commercial GUI modelers such as Hackolade infer relationships from metadata.
-[Azimutt](https://github.com/azimuttapp/azimutt) flags `_id` columns without declared
-relations as part of its schema analysis.
-
-What none of them is: a native PostgreSQL CLI that validates its inferences against the
-actual data, mines evidence from the catalog itself, speaks the naming conventions of
-non-English legacy schemas, reports its own coverage honestly, and hands you DDL you can
-review.
-
-`pgfathom` deliberately does *not* compete with the tools that already solved their
-problems well — [Squawk](https://squawkhq.com/) for migration linting,
-[Atlas](https://atlasgo.io/) for drift, [SchemaSpy](https://schemaspy.org/) and Azimutt for
-diagrams, [sqlc](https://sqlc.dev/) and [jOOQ](https://www.jooq.org/) for code generation.
-The versioned JSON model is the integration point: consume it and generate whatever you
-like from a schema that finally knows its own relationships.
-
-## Roadmap
-
-| Phase | Capability | Status |
-|---|---|---|
-| 1 | Core model and naming profiles | Done |
-| 2 | Catalog inspection · `pgfathom audit` | Done |
-| 3 | Name-based candidate inference | Done |
-| 3.5 | Naming-convention detection from the schema itself | Done |
-| 4 | Planner-statistics prefilter | Done |
-| 5 | Data validation · `pgfathom discover` | Done |
-| 6 | Join mining from views and functions | Done |
-| 7 | Terminal, JSON and SQL output | Done |
-| 8 | Composite keys, benchmark corpus and release | Done |
-
-Full detail in [`docs/ROADMAP.md`](docs/ROADMAP.md).
-
-**After v0.1:** `pgfathom check --baseline` for CI — fail the build when a new undeclared
-relationship appears or an orphan count grows. Then structural findings, cross-cutting
-patterns (tenant columns, polymorphic pairs), and DBML/Mermaid/PlantUML export.
-
-Code generation is explicitly *not* on the roadmap.
-
 ## How correctness is measured
 
 The headline metric is **recovery rate**: take a schema with complete foreign keys, drop
@@ -464,52 +470,51 @@ inheritance — are named in every report.
 The metric that has no tolerance is the other one: **zero confirmed false positives.** A
 missed relationship costs you a finding. A wrong one confirmed costs you the tool.
 
-## Installing
+## Prior art
 
-On Debian, Ubuntu, Fedora or RHEL, take the package for your architecture from the
-[releases](https://github.com/lvcas-dotcom/pgfathom/releases):
+`pgfathom` is not new science, and says so.
 
-```console
-$ sudo dpkg -i pgfathom_0.1.0_linux_amd64.deb     # or: sudo rpm -i ...linux_amd64.rpm
-$ pgfathom version
-```
+Containment is known in the data-profiling literature as an **inclusion dependency** — the
+automatically testable part of a foreign key. There is a mature body of algorithms for
+discovering them (SPIDER, BINDER, MIND), implemented in
+[Metanome](https://hpi.de/naumann/projects/repeatability/data-profiling/metanome-ind-algorithms.html).
+Commercial GUI modelers such as Hackolade infer relationships from metadata.
+[Azimutt](https://github.com/azimuttapp/azimutt) flags `_id` columns without declared
+relations as part of its schema analysis.
 
-It installs the binary in `/usr/bin`, the licence and README under
-`/usr/share/doc/pgfathom/`, and shell completion for bash, zsh and fish. There is no apt or
-yum repository, so it does not update itself.
+What none of them is: a native PostgreSQL CLI that validates its inferences against the
+actual data, mines evidence from the catalog itself, speaks the naming conventions of
+non-English legacy schemas, reports its own coverage honestly, and hands you DDL you can
+review.
 
-With Go installed:
+`pgfathom` deliberately does *not* compete with the tools that already solved their
+problems well — [Squawk](https://squawkhq.com/) for migration linting,
+[Atlas](https://atlasgo.io/) for drift, [SchemaSpy](https://schemaspy.org/) and Azimutt for
+diagrams, [sqlc](https://sqlc.dev/) and [jOOQ](https://www.jooq.org/) for code generation.
+The versioned JSON model is the integration point: consume it and generate whatever you
+like from a schema that finally knows its own relationships.
 
-```console
-$ go install github.com/lvcas-dotcom/pgfathom/cmd/pgfathom@latest
-```
+## Roadmap
 
-Note that this puts the binary in `$(go env GOPATH)/bin`, which is not on everyone's `PATH`,
-and that it reports its version but not its commit or build date — the module proxy carries no
-git metadata to stamp. The release binaries carry all three.
+| Phase | Capability | Status |
+|---|---|---|
+| 1 | Core model and naming profiles | Done |
+| 2 | Catalog inspection · `pgfathom audit` | Done |
+| 3 | Name-based candidate inference | Done |
+| 3.5 | Naming-convention detection from the schema itself | Done |
+| 4 | Planner-statistics prefilter | Done |
+| 5 | Data validation · `pgfathom discover` | Done |
+| 6 | Join mining from views and functions | Done |
+| 7 | Terminal, JSON and SQL output | Done |
+| 8 | Composite keys, benchmark corpus and release | Done |
 
-Or take a binary from the [releases](https://github.com/lvcas-dotcom/pgfathom/releases)
-— linux, macOS and Windows, amd64 and arm64, static, no runtime to install — and
-check it against the `checksums.txt` published beside it. The artifacts are not
-signed; the checksum file is what exists today, and
-[`docs/RELEASING.md`](docs/RELEASING.md) says so where it can be found.
+Full detail in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
-On macOS, Homebrew works once the tap exists:
+**After v0.1:** `pgfathom check --baseline` for CI — fail the build when a new undeclared
+relationship appears or an orphan count grows. Then structural findings, cross-cutting
+patterns (tenant columns, polymorphic pairs), and DBML/Mermaid/PlantUML export.
 
-```console
-$ brew install lvcas-dotcom/tap/pgfathom
-```
-
-That is a cask, so it is macOS only, and it clears the quarantine attribute on
-install because the binaries are not notarised — the cask says so when you
-install it, and [`docs/RELEASING.md`](docs/RELEASING.md) explains why.
-
-There is also a container image, on a base that carries root certificates
-because the tool opens a TLS connection to your server:
-
-```console
-$ docker run --rm ghcr.io/lvcas-dotcom/pgfathom:latest discover --dsn "$DSN"
-```
+Code generation is explicitly *not* on the roadmap.
 
 ## Building from source
 
@@ -542,6 +547,19 @@ $ make test-integration  # the suite that starts real PostgreSQL servers
 $ make corpus            # fetch and verify the benchmark corpus
 $ make benchmark         # measure recovery rate → docs/benchmark/
 ```
+
+## The design record
+
+The reasoning behind every decision here is written down, and it is written in
+Portuguese — the maintainer's language. [`docs/PGFATHOM.md`](docs/PGFATHOM.md)
+is the source of truth for what the tool is and what it refuses to be;
+[`openspec/`](openspec/) holds one directory per change, with the proposal, the
+alternatives that were rejected, and the specification deltas.
+
+You do not need either to use pgfathom, and you do not need them to contribute
+code — the tests and [CONTRIBUTING.md](CONTRIBUTING.md) are in English and are
+enough. They are there for anyone who wants to know *why*, and they are honest
+about being untranslated rather than absent.
 
 ## Contributing
 
