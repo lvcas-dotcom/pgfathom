@@ -31,6 +31,12 @@ change between minor versions; both are versioned and documented when they do.
   GitLab and 18% on Discourse — each one a validation query against your
   database, which is why the number is published here.
 
+- **The detection section no longer prints a heading with nothing under it.**
+  A new dimension — the name a schema gives its primary keys — was added to the
+  model and counted as evidence, but the terminal report did not know how to
+  print it. A schema whose only detected convention was that one got a section
+  announcing conventions and naming none.
+
 ### Changed
 
 - The lexical fallback no longer extracts a table's trigrams once per column in

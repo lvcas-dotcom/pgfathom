@@ -374,3 +374,42 @@ func TestDetectionCountsReadAsEnglish(t *testing.T) {
 		t.Errorf("counts of one must read as singular, got:\n%s", got)
 	}
 }
+
+// TestDetectionSectionIsNeverEmpty guards the seam between what Empty() counts
+// and what the renderer knows how to print. They drifted once: a detection
+// dimension was added to the model and to Empty(), the heading started
+// appearing for schemas that had only that dimension, and it appeared with
+// nothing beneath it — a section claiming to have read conventions and naming
+// none.
+func TestDetectionSectionIsNeverEmpty(t *testing.T) {
+	dimensions := map[string]model.NamingDetection{
+		"reference suffix": {Enabled: true, ColumnSuffixes: []model.NamingEvidence{{Affix: "_id", Occurrences: 9}}},
+		"reference prefix": {Enabled: true, ColumnPrefixes: []model.NamingEvidence{{Affix: "id_", Occurrences: 9}}},
+		"table prefix":     {Enabled: true, TablePrefixes: []model.NamingEvidence{{Affix: "tb_", Occurrences: 9}}},
+		"key name":         {Enabled: true, PrimaryKeyNames: []model.NamingEvidence{{Affix: "id", Occurrences: 9}}},
+	}
+
+	for name, detection := range dimensions {
+		if detection.Empty() {
+			t.Fatalf("%s: fixture must not be empty, or it tests nothing", name)
+		}
+
+		var b bytes.Buffer
+		view := report.DiscoverView{
+			Result: model.NewResult("test", "en", time.Unix(0, 0).UTC(),
+				model.Coverage{TablesTotal: 1, TablesAnalyzed: 1}),
+			Detection: detection,
+		}
+		if err := report.Discover(&b, view); err != nil {
+			t.Fatalf("%s: Discover: %v", name, err)
+		}
+
+		if !strings.Contains(b.String(), "DETECTED") {
+			t.Errorf("%s: a non-empty detection must show the section", name)
+			continue
+		}
+		if !strings.Contains(b.String(), "9 occurrences") {
+			t.Errorf("%s: the section must name what it detected:\n%s", name, b.String())
+		}
+	}
+}

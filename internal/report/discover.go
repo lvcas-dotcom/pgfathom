@@ -327,6 +327,9 @@ func writeDetection(b *strings.Builder, v DiscoverView) {
 		{"reference suffix", v.Detection.ColumnSuffixes},
 		{"reference prefix", v.Detection.ColumnPrefixes},
 		{"table prefix", v.Detection.TablePrefixes},
+		// Counted by Empty(), so leaving it out here printed the heading with
+		// nothing under it — a section announcing conventions and listing none.
+		{"key name", v.Detection.PrimaryKeyNames},
 	} {
 		for _, e := range group.items {
 			detail := fmt.Sprintf("%d occurrences (%.0f%%)", e.Occurrences, 100*e.Share)
