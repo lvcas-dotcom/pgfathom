@@ -57,7 +57,7 @@ func (m keyMatch) signature() string {
 // lookups each — a few million cheap operations on the largest schema measured,
 // and none of them touching a database.
 func generateComposite(res *Result, schemas []model.Schema, opts Options) {
-	targets := compositeTargets(schemas)
+	targets := compositeTargets(schemas, opts.Profile)
 	if len(targets) == 0 {
 		return
 	}
@@ -69,29 +69,42 @@ func generateComposite(res *Result, schemas []model.Schema, opts Options) {
 	}
 }
 
+// compositeTarget is a table a composite hypothesis can point at, carrying the
+// forms of its own name.
+//
+// The forms are held here because every table in the schema is matched against
+// every one of these, and deriving them inside that loop derives the same forms
+// for the same target once per table in the database. On a schema with five
+// thousand tables and five hundred composite keys that is two and a half
+// million derivations of five hundred distinct answers.
+type compositeTarget struct {
+	table model.Table
+	forms []profile.Form
+}
+
 // compositeTargets collects the tables a composite hypothesis can point at, in
 // a stable order.
-func compositeTargets(schemas []model.Schema) []model.Table {
-	var out []model.Table
+func compositeTargets(schemas []model.Schema, p *profile.Profile) []compositeTarget {
+	var out []compositeTarget
 	for _, s := range schemas {
 		for _, t := range s.Tables {
 			if len(t.PrimaryKey) < 2 {
 				continue
 			}
 			if _, ok := keyColumns(t, t.PrimaryKey); ok {
-				out = append(out, t)
+				out = append(out, compositeTarget{table: t, forms: p.TableForms(t.Name)})
 			}
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Ref() < out[j].Ref() })
+	sort.SliceStable(out, func(i, j int) bool { return out[i].table.Ref() < out[j].table.Ref() })
 	return out
 }
 
-func compositeFor(res *Result, child model.Table, targets []model.Table, opts Options) {
+func compositeFor(res *Result, child model.Table, targets []compositeTarget, opts Options) {
 	var matches []keyMatch
 
 	for _, target := range targets {
-		complete, partial := matchKey(child, target, opts.Profile)
+		complete, partial := matchKey(child, target)
 
 		switch {
 		case len(complete) > 1:
@@ -100,17 +113,17 @@ func compositeFor(res *Result, child model.Table, targets []model.Table, opts Op
 			// a hunch wearing a decision's clothes.
 			res.Skipped = append(res.Skipped, Skip{
 				Child:  model.KeyRef{Schema: child.Schema, Table: child.Name, Columns: complete[0].columns},
-				Target: target.Ref(),
+				Target: target.table.Ref(),
 				Reason: SkipAmbiguousPosition,
 			})
 		case len(complete) == 1:
 			matches = append(matches, complete[0])
-		case len(partial) >= minPartialMatch && len(partial) < len(target.PrimaryKey):
+		case len(partial) >= minPartialMatch && len(partial) < len(target.table.PrimaryKey):
 			res.Skipped = append(res.Skipped, Skip{
 				Child:  model.KeyRef{Schema: child.Schema, Table: child.Name, Columns: partial},
-				Target: target.Ref(),
+				Target: target.table.Ref(),
 				Reason: SkipPartialKey,
-				Detail: fmt.Sprintf("%d of %d positions", len(partial), len(target.PrimaryKey)),
+				Detail: fmt.Sprintf("%d of %d positions", len(partial), len(target.table.PrimaryKey)),
 			})
 		}
 	}
@@ -124,8 +137,11 @@ func compositeFor(res *Result, child model.Table, targets []model.Table, opts Op
 // any name to go on, and once per form of the target's name. It returns every
 // complete resolution, and the columns of the best incomplete one for the
 // near-miss report.
-func matchKey(child, target model.Table, p *profile.Profile) (complete []keyMatch, partial []string) {
-	seen := make(map[string]bool)
+func matchKey(child model.Table, target compositeTarget) (complete []keyMatch, partial []string) {
+	// Allocated on the first complete reading rather than up front. Most pairs
+	// of tables have nothing to do with each other, and on a large schema this
+	// is one map per pair against one map per match.
+	var seen map[string]bool
 
 	// A reading the child cannot offer is not a reading, so eligibility and type
 	// are settled here rather than downstream. A rejected reading that survived
@@ -133,37 +149,40 @@ func matchKey(child, target model.Table, p *profile.Profile) (complete []keyMatc
 	// with it as ambiguous — the child's own surrogate `id` mirroring a target's
 	// `id` is exactly how that happens.
 	add := func(m keyMatch, cols []string) {
-		if len(cols) < len(target.PrimaryKey) {
+		if len(cols) < len(target.table.PrimaryKey) {
 			if len(cols) > len(partial) {
 				partial = cols
 			}
 			return
 		}
 		// A table matching its own key is a tautology, not a relationship.
-		if child.Ref() == target.Ref() && sameColumns(cols, target.PrimaryKey) {
+		if child.Ref() == target.table.Ref() && sameColumns(cols, target.table.PrimaryKey) {
 			return
 		}
-		if !usable(child, target, cols) {
+		if !usable(child, target.table, cols) {
 			return
 		}
 		m.columns = cols
 		if seen[m.signature()] {
 			return
 		}
+		if seen == nil {
+			seen = make(map[string]bool, 2)
+		}
 		seen[m.signature()] = true
 		complete = append(complete, m)
 	}
 
-	add(keyMatch{target: target, derivation: derivMirror}, resolveMirror(child, target))
+	add(keyMatch{target: target.table, derivation: derivMirror}, resolveMirror(child, target.table))
 
-	for _, f := range p.TableForms(target.Name) {
-		cols, anchors := resolveAnchored(child, target, f.Value)
+	for _, f := range target.forms {
+		cols, anchors := resolveAnchored(child, target.table, f.Value)
 		if anchors == 0 {
 			// Zero anchors is the mirror case, which the call above already
 			// covered and which answers to a stricter rule.
 			continue
 		}
-		add(keyMatch{target: target, derivation: derivAnchored, origin: f.Origin}, cols)
+		add(keyMatch{target: target.table, derivation: derivAnchored, origin: f.Origin}, cols)
 	}
 	return complete, partial
 }
