@@ -24,6 +24,13 @@ change between minor versions; both are versioned and documented when they do.
   reordered and abbreviated. The signal is deliberately weaker than a profile
   match, because lexical proximity carries no stated convention behind it.
 
+  Measured against the public corpus, it is decisive exactly where nothing else
+  reaches: on a Portuguese-named schema with every key removed, recovery goes
+  from **1.8% to 16.6%**. On GitLab, which writes `_id` and needs no help
+  reading its own names, it adds half a point. It costs 5% more candidates on
+  GitLab and 18% on Discourse — each one a validation query against your
+  database, which is why the number is published here.
+
 ### Changed
 
 - The lexical fallback no longer extracts a table's trigrams once per column in
