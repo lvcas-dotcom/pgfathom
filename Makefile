@@ -4,7 +4,10 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
-LDFLAGS := -s -w \
+# Recursive on purpose: demo-svg overrides VERSION for its own build, and an
+# immediate assignment here would have expanded VERSION before that override
+# exists.
+LDFLAGS = -s -w \
 	-X '$(PKG)/internal/buildinfo.Version=$(VERSION)' \
 	-X '$(PKG)/internal/buildinfo.Commit=$(COMMIT)' \
 	-X '$(PKG)/internal/buildinfo.Date=$(DATE)'
@@ -13,7 +16,7 @@ LDFLAGS := -s -w \
 # has to stay trivial.
 export CGO_ENABLED := 0
 
-.PHONY: build test test-integration corpus benchmark lint fmt cover crosscheck release-check image-check clean help
+.PHONY: demo-svg build test test-integration corpus benchmark lint fmt cover crosscheck release-check image-check clean help
 
 ## build: compile the binary into ./bin
 build:
@@ -111,6 +114,32 @@ image-check:
 	cp Dockerfile "$$ctx/"; \
 	docker buildx build --platform linux/amd64,linux/arm64 --output=type=cacheonly "$$ctx"
 	@echo "image ok"
+
+## demo-svg: re-record the README image from a real run
+#
+# The image is generated rather than screenshotted so it can be regenerated when
+# the report format changes — see docs/RELEASING.md. It needs Docker.
+#
+# It builds at the latest tag rather than at the working tree's version, because
+# the tool stamps its own version into the report and a recording that says
+# v0.1.2-16-g837ec2a-dirty tells the reader about the maintainer's checkout
+# instead of about their database.
+demo-svg: VERSION = $(shell git describe --tags --abbrev=0 2>/dev/null || echo dev)
+demo-svg: build
+	@ctr=pgfathom-demo-svg; \
+	docker rm -f $$ctr >/dev/null 2>&1 || true; \
+	docker run -d --name $$ctr -e POSTGRES_PASSWORD=demo -e POSTGRES_DB=loja -p 55440:5432 \
+		-v "$$PWD/demo/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro" postgres:16-alpine >/dev/null; \
+	for i in $$(seq 40); do \
+		docker exec $$ctr psql -U postgres -d loja -c 'SELECT 1 FROM nota_fiscal LIMIT 1' >/dev/null 2>&1 && break; \
+		sleep 1; \
+	done; \
+	COLORTERM=truecolor PGFATHOM_DSN='postgres://postgres:demo@localhost:55440/loja?sslmode=disable' \
+		./bin/$(BINARY) discover --schema public --full --color always 2>/dev/null > /tmp/pgfathom-demo.ansi; \
+	docker rm -f $$ctr >/dev/null; \
+	go run scripts/termsvg.go < /tmp/pgfathom-demo.ansi > assets/demo.svg; \
+	echo "assets/demo.svg regenerated; the plain text below goes in the README"; \
+	sed 's/\x1b\[[0-9;]*m//g' /tmp/pgfathom-demo.ansi
 
 ## clean: remove build artifacts
 clean:
