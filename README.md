@@ -30,10 +30,10 @@
 `pgfathom` finds the relationships your database has but never declared — and proves them against the data instead of guessing from column names.
 
 > [!IMPORTANT]
-> **v0.1.1. Early, and measured.**
+> **Early, and measured.**
 > `pgfathom audit` and `pgfathom discover` run end to end, verdicts and reviewable
 > `.sql` artifacts included, against real production schemas and against a
-> [public corpus](#the-public-corpus) anyone can re-run with `make benchmark`.
+> [public corpus](#the-measured-corpus) anyone can re-run with `make benchmark`.
 > Recovery is around 61% on a 1,857-key schema, and the report says what that
 > number does not measure as plainly as what it does. What the tool never does is
 > write to your database. The terminal output below is a real run against the
@@ -126,6 +126,11 @@ Note the first row: `os_servico.resp_tecnico → funcionario.id`. No name-matchi
 in the world finds that one — `resp_tecnico` looks nothing like `funcionario`. `pgfathom`
 finds it by reading the join predicates out of your own view and function definitions.
 
+How often that pays depends entirely on how much SQL your database stores. It is decisive
+here and it recovered a single key across the public corpus, for a reason
+[measured below](#the-measured-corpus): the schema dumps in it barely contain any joins to
+read. A live application database is a different animal.
+
 Output comes as a terminal report, a versioned JSON model, and reviewable `.sql` artifacts.
 
 ```console
@@ -151,7 +156,7 @@ On Debian, Ubuntu, Fedora or RHEL, take the package for your architecture from t
 [releases](https://github.com/lvcas-dotcom/pgfathom/releases):
 
 ```console
-$ sudo dpkg -i pgfathom_0.1.0_linux_amd64.deb     # or: sudo rpm -i ...linux_amd64.rpm
+$ sudo dpkg -i pgfathom_*_linux_amd64.deb     # or: sudo rpm -i pgfathom_*_linux_amd64.rpm
 $ pgfathom version
 ```
 
@@ -417,7 +422,18 @@ already the language's.
 
 **Join mining contributes almost nothing measurable here**: one extra key on GitLab, none
 elsewhere. Reported because a feature that measured smaller than the argument for it should
-say so.
+say so — and because the reason turns out to be the corpus rather than the extractor.
+
+Count what there is to mine in these two dumps and the yield stops being surprising. GitLab
+declares 336 functions, and **three of them contain a `JOIN` at all** — the rest are trigger
+bodies, partition maintenance and `INSERT`/`UPDATE` on a single table. It declares 15 views.
+Discourse declares 7 functions with no `JOIN` between them, and one view. A published
+`structure.sql` is a schema definition, and analytical SQL is not where it lives.
+
+That is a fact about this corpus, not about the technique: the demo schema in
+[`docs/DEMO.md`](docs/DEMO.md) recovers a relationship no name matching can reach, from one
+view. What the corpus establishes is that a schema dump is a poor place to look for joins,
+and that anyone quoting these numbers should say so.
 
 Three things these tables are not saying.
 
