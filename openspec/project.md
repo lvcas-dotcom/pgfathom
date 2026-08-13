@@ -70,7 +70,9 @@ Repositório, module path, binário, pacotes, imagem Docker: tudo minúsculo, `p
 
 Module path: `github.com/lvcas-dotcom/pgfathom`.
 
-Identificadores em código e README público em inglês. Documentação interna, specs e commits em português.
+Tudo que está na árvore do repositório é em inglês — código, comentários, arquivos de build, workflows de CI e os documentos da raiz. Se um contribuidor consegue abrir, está em inglês.
+
+Duas exceções, ambas deliberadas: as mensagens de commit e o registro de design (`docs/PGFATHOM.md` e `openspec/`) são em português. São a história do projeto e o raciocínio dele, não a interface.
 
 Commits em Conventional Commits, em português, sem `Co-Authored-By`.
 

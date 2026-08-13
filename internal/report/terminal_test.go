@@ -246,3 +246,26 @@ func TestCompleteScopeCarriesNoWarning(t *testing.T) {
 		t.Errorf("the share is shown either way:\n%s", out)
 	}
 }
+
+// TestDetectionCountsReadAsEnglish covers the branch the golden files cannot:
+// they exercise counts above one, where singular and plural render the same
+// bytes. A schema with a single table and a single declared key is a real
+// first run — the smallest one somebody tries the tool on — and "1 tables and
+// 1 declared keys" is the first thing they read.
+func TestDetectionCountsReadAsEnglish(t *testing.T) {
+	r := model.NewResult("test", "en", time.Unix(0, 0).UTC(),
+		model.Coverage{TablesTotal: 1, TablesAnalyzed: 1})
+
+	var b bytes.Buffer
+	view := report.DiscoverView{
+		Result:    r,
+		Detection: model.NamingDetection{Enabled: true, Tables: 1, DeclaredKeys: 1},
+	}
+	if err := report.Discover(&b, view); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	if got := b.String(); !strings.Contains(got, "1 table and 1 declared key;") {
+		t.Errorf("counts of one must read as singular, got:\n%s", got)
+	}
+}

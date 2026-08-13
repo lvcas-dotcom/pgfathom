@@ -89,9 +89,13 @@ both.
 
 ### Language
 
-- **Code, and anything the user sees** — identifiers, comments, `--help`, the
-  README, this file: **English**.
-- **Commits, specs and internal docs**: **Portuguese**.
+**Everything in the repository tree is English** — code, comments, `--help`,
+build files, CI workflows, and the documents you are reading. If a contributor
+can open it, it is in English.
+
+Two exceptions, both deliberate: **commit messages** and the design record under
+`openspec/` are written in Portuguese, the maintainer's language. They are the
+project's history and its reasoning, not its interface.
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/), and
 the body should say why, not restate the diff.

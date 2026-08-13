@@ -1,41 +1,41 @@
 #!/usr/bin/env bash
 #
-# Extrai do CHANGELOG a seção de uma versão, para o goreleaser publicar como
-# nota de release.
+# Extracts one version's section from the CHANGELOG, for goreleaser to publish
+# as the release notes.
 #
-# Existe porque nota gerada de commits descreve o que foi tocado, não o que
-# mudou para quem usa — e porque publicar é irreversível. Se a seção não existe,
-# isto falha e o release inteiro para: melhor abortar antes de publicar do que
-# sair com uma nota vazia que não dá para corrigir depois.
+# It exists because notes generated from commits describe what was touched, not
+# what changed for whoever uses this — and because publishing is irreversible.
+# If the section is missing this fails and stops the whole release: better to
+# abort before publishing than to go out with empty notes that cannot be fixed.
 #
-# Uso: scripts/release-notes.sh v0.1.1 [caminho-do-changelog]
+# Usage: scripts/release-notes.sh v0.1.1 [changelog-path]
 set -euo pipefail
 
-tag="${1:?uso: release-notes.sh <tag> [changelog]}"
+tag="${1:?usage: release-notes.sh <tag> [changelog]}"
 changelog="${2:-CHANGELOG.md}"
 version="${tag#v}"
 
 if [ ! -f "$changelog" ]; then
-	echo "release-notes: $changelog não existe" >&2
+	echo "release-notes: $changelog does not exist" >&2
 	exit 1
 fi
 
-# A seção vai do cabeçalho da versão até o próximo cabeçalho de mesmo nível.
+# The section runs from the version heading to the next heading of the same level.
 notes=$(awk -v version="$version" '
 	$0 ~ "^## \\[" version "\\]" { collecting = 1; next }
 	collecting && /^## / { exit }
-	# As definições de link ficam no rodapé do arquivo, depois da última seção,
-	# e sem cabeçalho que as separe. Sem isto, a versão mais antiga as herda.
+	# Link definitions sit at the foot of the file, after the last section, with
+	# no heading to separate them. Without this the oldest version inherits them.
 	collecting && /^\[[^]]+\]: / { next }
 	collecting { print }
 ' "$changelog")
 
-# Sem as linhas em branco das pontas, para a nota não abrir com um vão.
+# Trimmed at both ends, so the notes do not open with a gap.
 notes=$(printf '%s\n' "$notes" | sed -e '/./,$!d' -e :a -e '/^\n*$/{$d;N;ba' -e '}')
 
 if [ -z "$notes" ]; then
-	echo "release-notes: $changelog não tem seção para $version" >&2
-	echo "  acrescente '## [$version] — <data>' antes de marcar a tag" >&2
+	echo "release-notes: $changelog has no section for $version" >&2
+	echo "  add '## [$version] - <date>' before tagging" >&2
 	exit 1
 fi
 

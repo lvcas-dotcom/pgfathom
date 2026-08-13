@@ -8,6 +8,28 @@ Versions follow [semantic versioning](https://semver.org/spec/v2.0.0.html). Whil
 the major version is `0`, the command-line surface and the JSON contract may
 change between minor versions; both are versioned and documented when they do.
 
+## [Unreleased]
+
+### Fixed
+
+- **`--out` no longer writes SQL silently.** The manifest — what was written,
+  where, and the reminder to read it before running it — appeared only when the
+  output format was SQL. The ordinary run, a report on screen and `--out` for
+  the files, left generated SQL on disk with no mention of it. It now appears in
+  every format, and goes to stderr under `--format json` so the document on
+  stdout stays parseable.
+- Counts of one read as English: "1 table and 1 declared key", not "1 tables and
+  1 declared keys".
+
+### Changed
+
+- The composite pass of inference no longer derives the same target's name forms
+  once per table in the database, or allocates a map for every pair of tables.
+  On a 5,000-table schema it is 35% faster and allocates 62% less.
+- The example in the README is now a real run against a demo schema published in
+  `docs/DEMO.md`, which reproduces it exactly. It used to be a mockup of output
+  the tool does not produce.
+
 ## [0.1.1] — 2026-08-12
 
 ### Added
