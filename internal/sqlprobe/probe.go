@@ -49,6 +49,13 @@ const queryStatements = `SELECT query FROM pg_stat_statements`
 type Evidence struct {
 	Joins []model.JoinEvidence
 
+	// Predicates is column-level predicate evidence: what operator real code
+	// applies to a column, which drives index method recommendation. Unlike
+	// Joins, an entry survives per distinct object — recurrence across views
+	// and functions is the signal a hot-column finding needs, and undercounting
+	// it is the safe direction, never the false-positive one.
+	Predicates []model.PredicateEvidence
+
 	// StatementsAvailable reports whether pg_stat_statements answered. Absence
 	// of usage evidence must never look like absence of usage.
 	StatementsAvailable bool
@@ -65,25 +72,30 @@ func Probe(ctx context.Context, q Querier, schemas []model.Schema) (*Evidence, e
 	}
 
 	ev := &Evidence{}
-	var raw []sourcedJoin
+	var rawJoins []sourcedJoin
+	var rawPreds []sourcedPredicate
 
 	views, err := fetchSources(ctx, q, queryViews, names)
 	if err != nil {
 		return nil, fmt.Errorf("reading view definitions: %w", err)
 	}
-	raw = append(raw, extractAll(views, model.JoinFromView)...)
+	j, p := extractAll(views, model.JoinFromView)
+	rawJoins, rawPreds = append(rawJoins, j...), append(rawPreds, p...)
 
 	functions, err := fetchSources(ctx, q, queryFunctions, names)
 	if err != nil {
 		return nil, fmt.Errorf("reading function bodies: %w", err)
 	}
-	raw = append(raw, extractAll(functions, model.JoinFromFunction)...)
+	j, p = extractAll(functions, model.JoinFromFunction)
+	rawJoins, rawPreds = append(rawJoins, j...), append(rawPreds, p...)
 
 	statements, available := fetchStatements(ctx, q)
 	ev.StatementsAvailable = available
-	raw = append(raw, extractAll(statements, model.JoinFromStatements)...)
+	j, p = extractAll(statements, model.JoinFromStatements)
+	rawJoins, rawPreds = append(rawJoins, j...), append(rawPreds, p...)
 
-	ev.Joins = resolveAgainstCatalog(raw, schemas)
+	ev.Joins = resolveAgainstCatalog(rawJoins, schemas)
+	ev.Predicates = resolvePredicatesAgainstCatalog(rawPreds, schemas)
 	return ev, nil
 }
 
@@ -95,6 +107,12 @@ type source struct {
 
 type sourcedJoin struct {
 	join   rawJoin
+	source model.JoinSource
+	object string
+}
+
+type sourcedPredicate struct {
+	pred   rawPredicate
 	source model.JoinSource
 	object string
 }
@@ -145,14 +163,19 @@ func fetchStatements(ctx context.Context, q Querier) ([]source, bool) {
 	return out, true
 }
 
-func extractAll(sources []source, kind model.JoinSource) []sourcedJoin {
-	var out []sourcedJoin
+func extractAll(sources []source, kind model.JoinSource) ([]sourcedJoin, []sourcedPredicate) {
+	var joins []sourcedJoin
+	var preds []sourcedPredicate
 	for _, s := range sources {
-		for _, j := range extract(s.sql) {
-			out = append(out, sourcedJoin{join: j, source: kind, object: s.object})
+		j, p := extract(s.sql)
+		for _, jj := range j {
+			joins = append(joins, sourcedJoin{join: jj, source: kind, object: s.object})
+		}
+		for _, pp := range p {
+			preds = append(preds, sourcedPredicate{pred: pp, source: kind, object: s.object})
 		}
 	}
-	return out
+	return joins, preds
 }
 
 // resolveAgainstCatalog keeps only pairs whose both sides name a real column
@@ -207,6 +230,73 @@ func resolveAgainstCatalog(raw []sourcedJoin, schemas []model.Schema) []model.Jo
 		return out[i].Source < out[j].Source
 	})
 	return out
+}
+
+// resolvePredicatesAgainstCatalog keeps only predicates whose reference names a
+// real column of a real table in scope. Unlike join resolution, an entry
+// survives per distinct object: recurrence across views and functions is
+// exactly the signal a hot-column finding needs.
+func resolvePredicatesAgainstCatalog(raw []sourcedPredicate, schemas []model.Schema) []model.PredicateEvidence {
+	type dedupKey struct {
+		column string
+		op     model.OperatorClass
+		source model.JoinSource
+		object string
+	}
+
+	seen := make(map[dedupKey]bool)
+	var out []model.PredicateEvidence
+
+	for _, sp := range raw {
+		col, ok := resolveRef(sp.pred.ref, schemas)
+		if !ok {
+			continue
+		}
+
+		op := operatorClassFor(sp.pred.op)
+		key := dedupKey{column: col.String(), op: op, source: sp.source, object: sp.object}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+
+		out = append(out, model.PredicateEvidence{
+			Column:   col,
+			Operator: op,
+			Source:   sp.source,
+			Object:   sp.object,
+		})
+	}
+
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Column.String() != out[j].Column.String() {
+			return out[i].Column.String() < out[j].Column.String()
+		}
+		if out[i].Operator != out[j].Operator {
+			return out[i].Operator < out[j].Operator
+		}
+		return out[i].Object < out[j].Object
+	})
+	return out
+}
+
+func operatorClassFor(op predOp) model.OperatorClass {
+	switch op {
+	case predRange:
+		return model.OpRange
+	case predLikePrefix:
+		return model.OpLikePrefix
+	case predLikeInfix:
+		return model.OpLikeInfix
+	case predContainment:
+		return model.OpContainment
+	case predFullText:
+		return model.OpFullText
+	case predVectorDistance:
+		return model.OpVectorDistance
+	default:
+		return model.OpEquality
+	}
 }
 
 func resolveRef(ref rawRef, schemas []model.Schema) (model.ColumnRef, bool) {

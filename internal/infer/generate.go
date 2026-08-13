@@ -16,6 +16,11 @@ type Options struct {
 	// MinScore is the cut below which a candidate is discarded with a reason.
 	MinScore float64
 
+	// MinNameSimilarity is the cut below which the lexical-similarity fallback
+	// never raises a candidate at all. Distinct from MinScore, and far more
+	// permissive by design — see DefaultMinNameSimilarity.
+	MinNameSimilarity float64
+
 	// SmallTableRows is the size below which a target counts as a domain table
 	// for the generic-name penalty.
 	SmallTableRows int64
@@ -38,6 +43,13 @@ func (o Options) smallTableRows() int64 {
 		return DefaultSmallTableRows
 	}
 	return o.SmallTableRows
+}
+
+func (o Options) minNameSimilarity() float64 {
+	if o.MinNameSimilarity <= 0 {
+		return DefaultMinNameSimilarity
+	}
+	return o.MinNameSimilarity
 }
 
 // SkipReason says why a possible target could not be used.
@@ -121,6 +133,7 @@ func Generate(schemas []model.Schema, opts Options) *Result {
 	}
 
 	index := buildTargetIndex(schemas, opts.Profile)
+	tables := flattenTables(schemas)
 
 	for _, s := range schemas {
 		for _, t := range s.Tables {
@@ -130,7 +143,7 @@ func Generate(schemas []model.Schema, opts Options) *Result {
 				if !eligible(t, col) {
 					continue
 				}
-				generateFor(res, index, t, col, opts)
+				generateFor(res, index, tables, t, col, opts)
 			}
 		}
 	}
@@ -187,7 +200,49 @@ type indexedTarget struct {
 	origin profile.Origin
 }
 
-func generateFor(res *Result, index map[string][]indexedTarget, t model.Table, col model.Column, opts Options) {
+// flattenTables lists every table across every schema in scope, in the order
+// Generate already walks them. The affix index is keyed by normalized form
+// and cannot be searched by proximity — the similarity fallback needs a
+// plain list to scan instead.
+func flattenTables(schemas []model.Schema) []model.Table {
+	var tables []model.Table
+	for _, s := range schemas {
+		tables = append(tables, s.Tables...)
+	}
+	return tables
+}
+
+// nameMatch is a table that answered a column's entity name, however it was
+// found, paired with the name signal that match earns.
+type nameMatch struct {
+	tgt    target
+	signal model.Signal
+}
+
+// resolveKeyTarget checks whether a named table can anchor a single-column
+// candidate: it must carry a primary key, and that key must be a single
+// column. Composite and missing keys are recorded as a Skip rather than
+// dropped in silence — the relationship may well be real, and this is where a
+// near miss stays legible.
+func resolveKeyTarget(child model.KeyRef, targetName string, table model.Table) (tgt target, skip *Skip, ok bool) {
+	switch {
+	case len(table.PrimaryKey) > 1:
+		// The composite pass is the one that can reach this target, and it
+		// looks for the key's own columns rather than for this name. A note
+		// here is what keeps the gap between the two visible.
+		return target{}, &Skip{Child: child, Target: targetName, Reason: SkipArityMismatch}, false
+	case len(table.PrimaryKey) == 0:
+		return target{}, &Skip{Child: child, Target: targetName, Reason: SkipNoKey}, false
+	}
+
+	pk, found := table.Column(table.PrimaryKey[0])
+	if !found {
+		return target{}, nil, false
+	}
+	return target{table: table, pkColumn: pk}, nil, true
+}
+
+func generateFor(res *Result, index map[string][]indexedTarget, tables []model.Table, t model.Table, col model.Column, opts Options) {
 	entity := opts.Profile.EntityName(col.Name)
 	if entity == "" {
 		return
@@ -195,18 +250,32 @@ func generateFor(res *Result, index map[string][]indexedTarget, t model.Table, c
 
 	child := model.SingleKey(t.Schema, t.Name, col.Name)
 
-	// Collapse to one entry per table: a table can answer to several forms, and
-	// the strongest match is the one that counts.
+	var matches []nameMatch
+	if indexed := index[entity]; len(indexed) > 0 {
+		matches = resolveByAffix(res, indexed, child)
+	} else {
+		// The affix index found nothing at all for this entity — never when it
+		// found something and every hit was skipped for arity or a missing key,
+		// which already has its own Skip explaining why. Trying a second route
+		// at that point would risk confusing "why was this table ignored" with
+		// "why did this other one appear from nowhere".
+		matches = resolveBySimilarity(res, tables, entity, child, opts)
+	}
+
+	finalizeMatches(res, matches, t, col, entity, opts)
+}
+
+// resolveByAffix collapses the profile index to one entry per table — a table
+// can answer to several forms, and the strongest match is the one that counts
+// — then resolves each against its primary key.
+func resolveByAffix(res *Result, indexed []indexedTarget, child model.KeyRef) []nameMatch {
 	best := make(map[string]indexedTarget)
-	for _, it := range index[entity] {
+	for _, it := range indexed {
 		key := it.table.Schema + "." + it.table.Name
 		if prev, seen := best[key]; !seen || it.origin < prev.origin {
 			best[key] = it
 		}
 	}
-
-	usable := make([]target, 0, len(best))
-	origins := make(map[string]profile.Origin, len(best))
 
 	names := make([]string, 0, len(best))
 	for name := range best {
@@ -214,46 +283,89 @@ func generateFor(res *Result, index map[string][]indexedTarget, t model.Table, c
 	}
 	sort.Strings(names)
 
+	matches := make([]nameMatch, 0, len(names))
 	for _, name := range names {
 		it := best[name]
 
-		switch {
-		case len(it.table.PrimaryKey) > 1:
-			// The composite pass is the one that can reach this target, and it
-			// looks for the key's own columns rather than for this name. A note
-			// here is what keeps the gap between the two visible.
-			res.Skipped = append(res.Skipped, Skip{Child: child, Target: name, Reason: SkipArityMismatch})
-			continue
-		case len(it.table.PrimaryKey) == 0:
-			res.Skipped = append(res.Skipped, Skip{Child: child, Target: name, Reason: SkipNoKey})
-			continue
+		tgt, skip, ok := resolveKeyTarget(child, name, it.table)
+		if skip != nil {
+			res.Skipped = append(res.Skipped, *skip)
 		}
-
-		pk, ok := it.table.Column(it.table.PrimaryKey[0])
 		if !ok {
 			continue
 		}
-		usable = append(usable, target{table: it.table, pkColumn: pk})
-		origins[name] = it.origin
+
+		matches = append(matches, nameMatch{tgt: tgt, signal: nameSignalFromOrigin(it.origin, it.table.Name)})
+	}
+	return matches
+}
+
+// resolveBySimilarity is the fallback the profile index cannot serve: it
+// scans every table in scope by lexical proximity to the entity name instead
+// of the profile's affix/plural forms. Only called by generateFor when the
+// affix index found nothing.
+func resolveBySimilarity(res *Result, tables []model.Table, entity string, child model.KeyRef, opts Options) []nameMatch {
+	type scored struct {
+		table      model.Table
+		similarity float64
 	}
 
+	cutoff := opts.minNameSimilarity()
+	var above []scored
+	for _, table := range tables {
+		similarity := TrigramSimilarity(entity, table.Name)
+		if similarity >= cutoff {
+			above = append(above, scored{table: table, similarity: similarity})
+		}
+	}
+
+	// Deterministic order: strongest similarity first, ties broken by name —
+	// the same discipline sortCandidates applies to the final output.
+	sort.SliceStable(above, func(i, j int) bool {
+		if above[i].similarity != above[j].similarity {
+			return above[i].similarity > above[j].similarity
+		}
+		return above[i].table.Name < above[j].table.Name
+	})
+
+	matches := make([]nameMatch, 0, len(above))
+	for _, s := range above {
+		name := s.table.Schema + "." + s.table.Name
+
+		tgt, skip, ok := resolveKeyTarget(child, name, s.table)
+		if skip != nil {
+			res.Skipped = append(res.Skipped, *skip)
+		}
+		if !ok {
+			continue
+		}
+
+		matches = append(matches, nameMatch{tgt: tgt, signal: nameSignalFromSimilarity(s.table.Name, s.similarity)})
+	}
+	return matches
+}
+
+// finalizeMatches turns resolved name matches into scored candidates. Shared
+// by every match source — profile affix or lexical fallback — because type
+// compatibility, ambiguity and the rest of the signal set do not depend on
+// how the name was found.
+func finalizeMatches(res *Result, matches []nameMatch, t model.Table, col model.Column, entity string, opts Options) {
 	// Ambiguity is kept rather than resolved by guesswork. Picking the largest
 	// or the same-schema table would be a hunch dressed as a decision, and it
 	// would hide from the user that there was any uncertainty at all.
-	ambiguous := len(usable) > 1
+	ambiguous := len(matches) > 1
 
-	for _, tgt := range usable {
-		match := CompareTypes(col.BaseType, tgt.pkColumn.BaseType)
+	for _, m := range matches {
+		match := CompareTypes(col.BaseType, m.tgt.pkColumn.BaseType)
 		if !match.Compatible() {
 			continue
 		}
 
-		key := tgt.table.Schema + "." + tgt.table.Name
-		signals := buildSignals(t, col, tgt, origins[key], match, ambiguous, entity, opts)
+		signals := buildSignals(m.signal, t, col, m.tgt, match, ambiguous, entity, opts)
 
 		res.Candidates = append(res.Candidates, model.Candidate{
-			Child:     child,
-			Parent:    model.SingleKey(tgt.table.Schema, tgt.table.Name, tgt.pkColumn.Name),
+			Child:     model.SingleKey(t.Schema, t.Name, col.Name),
+			Parent:    model.SingleKey(m.tgt.table.Schema, m.tgt.table.Name, m.tgt.pkColumn.Name),
 			Signals:   signals,
 			MetaScore: score(signals),
 			Verdict:   model.VerdictUnvalidated,
@@ -262,21 +374,28 @@ func generateFor(res *Result, index map[string][]indexedTarget, t model.Table, c
 	}
 }
 
-func buildSignals(t model.Table, col model.Column, tgt target, origin profile.Origin,
+func nameSignalFromOrigin(origin profile.Origin, tableName string) model.Signal {
+	if origin.Exact() {
+		return model.Signal{Kind: model.SigExactName, Weight: weightExactName, Detail: tableName}
+	}
+	return model.Signal{
+		Kind: model.SigNormalizedName, Weight: weightNormalizedName,
+		Detail: tableName + " via " + origin.String(),
+	}
+}
+
+func nameSignalFromSimilarity(tableName string, similarity float64) model.Signal {
+	return model.Signal{
+		Kind: model.SigNameSimilarity, Weight: nameSimilarityWeight(similarity),
+		Detail: tableName + " via lexical similarity",
+	}
+}
+
+func buildSignals(nameSignal model.Signal, t model.Table, col model.Column, tgt target,
 	match TypeMatch, ambiguous bool, entity string, opts Options) []model.Signal {
 
 	signals := make([]model.Signal, 0, 6)
-
-	if origin.Exact() {
-		signals = append(signals, model.Signal{
-			Kind: model.SigExactName, Weight: weightExactName, Detail: tgt.table.Name,
-		})
-	} else {
-		signals = append(signals, model.Signal{
-			Kind: model.SigNormalizedName, Weight: weightNormalizedName,
-			Detail: tgt.table.Name + " via " + origin.String(),
-		})
-	}
+	signals = append(signals, nameSignal)
 
 	if match == TypeIdentical {
 		signals = append(signals, model.Signal{

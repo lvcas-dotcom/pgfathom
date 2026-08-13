@@ -30,6 +30,13 @@ type Streams struct {
 
 	In io.Reader
 
+	// Interactive reports whether both In and Out are a real terminal — never
+	// set from a flag. A command gates any prompt on this, not on a setting a
+	// script would have to remember to pass: piped output, redirected input,
+	// and CI never see one. Zero value is false, so a Streams built by literal
+	// in a test stays silent unless a test opts in explicitly.
+	Interactive bool
+
 	color report.Emphasis
 
 	// progress is the decision about drawing a self-rewriting line on Err,
@@ -40,6 +47,7 @@ type Streams struct {
 // StdStreams wires a Streams to the process.
 func StdStreams(mode ColorMode) *Streams {
 	s := &Streams{Out: os.Stdout, Err: os.Stderr, In: os.Stdin}
+	s.Interactive = isTerminal(os.Stdin) && isTerminal(os.Stdout)
 	s.color = resolveEmphasis(mode, os.Stdout)
 
 	// Progress is drawn on Err and therefore decided against Err. A run whose

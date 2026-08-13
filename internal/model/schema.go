@@ -17,7 +17,10 @@ type Table struct {
 	// PrimaryKey lists column names in key order. Empty when there is none.
 	PrimaryKey []string `json:"primary_key,omitempty"`
 
-	Uniques [][]string `json:"uniques,omitempty"`
+	// Uniques holds every UNIQUE constraint declared on the table, name and
+	// columns together. The name is what lets a promotable one be turned into
+	// a primary key with ADD CONSTRAINT ... USING INDEX rather than a guess.
+	Uniques []UniqueConstraint `json:"uniques,omitempty"`
 
 	// ForeignKeys holds DECLARED constraints only. Inferred relationships live
 	// in Candidate, so no consumer can mistake one for the other.
@@ -37,6 +40,38 @@ type Table struct {
 
 // Ref returns the schema-qualified name.
 func (t Table) Ref() string { return t.Schema + "." + t.Name }
+
+// HasPrimaryKey reports whether the table declares a primary key of any shape,
+// single-column or composite.
+func (t Table) HasPrimaryKey() bool { return len(t.PrimaryKey) > 0 }
+
+// PromotableUnique returns the first UNIQUE constraint whose columns are all
+// NOT NULL — the shape that already proves a primary key without reading a
+// row, because the catalog already guarantees uniqueness and non-null. It
+// does not mean the constraint's own index can be reused directly: that
+// index is already tied to this constraint, and PostgreSQL's USING INDEX
+// promotion only accepts one with no constraint attached yet. Keeping the
+// name is what lets a caller name the old constraint to drop once a fresh
+// index has taken its place. The second result is false when no such unique
+// exists.
+func (t Table) PromotableUnique() (UniqueConstraint, bool) {
+	for _, u := range t.Uniques {
+		if t.allNotNull(u.Columns) {
+			return u, true
+		}
+	}
+	return UniqueConstraint{}, false
+}
+
+func (t Table) allNotNull(columns []string) bool {
+	for _, name := range columns {
+		col, ok := t.Column(name)
+		if !ok || col.Nullable {
+			return false
+		}
+	}
+	return true
+}
 
 // Column looks up a column by name. The second result is false when absent.
 func (t Table) Column(name string) (Column, bool) {
@@ -98,6 +133,12 @@ type Column struct {
 	Default  string `json:"default,omitempty"`
 	Position int    `json:"position"`
 	Comment  string `json:"comment,omitempty"`
+}
+
+// UniqueConstraint is a UNIQUE constraint as declared in the catalog.
+type UniqueConstraint struct {
+	Name    string   `json:"name"`
+	Columns []string `json:"columns"`
 }
 
 // ColumnRef points at one column of one table. It is the right unit where the

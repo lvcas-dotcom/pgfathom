@@ -189,8 +189,9 @@ func (s *Scope) stamp(c *model.Coverage) {
 
 // Result is what a catalog read produced, together with what it could not.
 type Result struct {
-	Schemas  []model.Schema
-	Coverage model.Coverage
+	Schemas    []model.Schema
+	Coverage   model.Coverage
+	Extensions model.ExtensionSet
 }
 
 // Read loads the catalog for the schemas in scope.
@@ -222,7 +223,34 @@ func Read(ctx context.Context, pool Querier, opts Options) (*Result, error) {
 	linkForeignKeyIndexes(tables)
 	classifyUnsupported(tables, &coverage)
 
-	return &Result{Schemas: group(schemas, tables), Coverage: coverage}, nil
+	extensions := readExtensions(ctx, pool)
+
+	return &Result{Schemas: group(schemas, tables), Coverage: coverage, Extensions: extensions}, nil
+}
+
+// readExtensions lists installed extensions. A failed read degrades to an
+// empty set rather than an error: an index method recommendation gated on an
+// extension is a nice-to-have, not something worth failing the whole audit
+// over.
+func readExtensions(ctx context.Context, pool Querier) model.ExtensionSet {
+	rows, err := pool.Query(ctx, queryExtensions)
+	if err != nil {
+		return model.NewExtensionSet(nil)
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return model.NewExtensionSet(nil)
+		}
+		names = append(names, name)
+	}
+	if rows.Err() != nil {
+		return model.NewExtensionSet(nil)
+	}
+	return model.NewExtensionSet(names)
 }
 
 // tableKey identifies a table across the several passes.
@@ -328,7 +356,7 @@ func readConstraints(ctx context.Context, pool Querier, schemas []string, tables
 		case "p":
 			t.PrimaryKey = columns
 		case "u":
-			t.Uniques = append(t.Uniques, columns)
+			t.Uniques = append(t.Uniques, model.UniqueConstraint{Name: name, Columns: columns})
 		case "f":
 			t.ForeignKeys = append(t.ForeignKeys, model.ForeignKey{
 				Name:       name,

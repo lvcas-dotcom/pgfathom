@@ -329,8 +329,11 @@ func writeDetection(b *strings.Builder, v DiscoverView) {
 		{"table prefix", v.Detection.TablePrefixes},
 	} {
 		for _, e := range group.items {
-			writeRow(tw, group.label, e.Affix,
-				fmt.Sprintf("%d occurrences (%.0f%%)", e.Occurrences, 100*e.Share))
+			detail := fmt.Sprintf("%d occurrences (%.0f%%)", e.Occurrences, 100*e.Share)
+			if len(e.Examples) > 0 {
+				detail += " — e.g. " + strings.Join(e.Examples, ", ")
+			}
+			writeRow(tw, group.label, e.Affix, detail)
 		}
 	}
 	_ = tw.Flush()

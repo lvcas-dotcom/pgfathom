@@ -81,6 +81,20 @@ type Coverage struct {
 
 	// PgStatStatements reports whether the query log was available to mine.
 	PgStatStatements bool `json:"pg_stat_statements"`
+
+	// KeyProbesSkipped lists tables whose missing-key suggestion was not
+	// probed against the data, and why — too large for the configured
+	// ceiling, or probing disabled outright. A skip here is not silence: the
+	// table still carries its missing_primary_key finding, just without a
+	// probed verdict backing a candidate key.
+	KeyProbesSkipped []SkippedKeyProbe `json:"key_probes_skipped,omitempty"`
+}
+
+// SkippedKeyProbe records one table whose key candidates were not tested for
+// uniqueness against the data, and why.
+type SkippedKeyProbe struct {
+	Table  string `json:"table"`
+	Reason string `json:"reason"`
 }
 
 // Complete reports whether every table in scope was analyzed and every

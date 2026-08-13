@@ -101,6 +101,16 @@ func TestNoANSIWhenNotATerminal(t *testing.T) {
 	}
 }
 
+// TestInteractiveDefaultsFalse guards the gate every prompt in audit relies
+// on: a Streams built by literal, the shape every test in this package uses,
+// must never accidentally opt into a prompt.
+func TestInteractiveDefaultsFalse(t *testing.T) {
+	streams := &Streams{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}, In: strings.NewReader("")}
+	if streams.Interactive {
+		t.Error("Interactive must default to false for a Streams built without StdStreams")
+	}
+}
+
 func TestResolveColor(t *testing.T) {
 	t.Run("explicit never wins over everything", func(t *testing.T) {
 		if resolveEmphasis(ColorNever, nil) != report.NoEmphasis {

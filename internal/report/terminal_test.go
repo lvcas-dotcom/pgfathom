@@ -137,6 +137,111 @@ func TestFindingsAreGroupedAndCounted(t *testing.T) {
 	}
 }
 
+func TestMissingPrimaryKeySuggestionIsRendered(t *testing.T) {
+	out := render(t, result(
+		model.Coverage{TablesTotal: 1, TablesAnalyzed: 1},
+		model.Finding{
+			Kind:   model.FindingMissingPrimaryKey,
+			Object: "public.cadastro",
+			Suggestion: &model.Suggestion{
+				Kind:    model.SuggestPromoteUnique,
+				Columns: []string{"cpf"},
+			},
+		},
+	))
+
+	if !strings.Contains(out, "NO PRIMARY KEY") {
+		t.Errorf("missing-key group should be titled:\n%s", out)
+	}
+	if !strings.Contains(out, "promote UNIQUE(cpf)") {
+		t.Errorf("output should name the promotable unique:\n%s", out)
+	}
+}
+
+func TestSyntheticPrimaryKeySuggestionIsRendered(t *testing.T) {
+	out := render(t, result(
+		model.Coverage{TablesTotal: 1, TablesAnalyzed: 1},
+		model.Finding{
+			Kind:   model.FindingMissingPrimaryKey,
+			Object: "public.log_evento",
+			Suggestion: &model.Suggestion{
+				Kind:    model.SuggestSyntheticPrimaryKey,
+				Columns: []string{"idkey"},
+				Note:    "schema convention: \"idkey\" names the primary key in 300 of 338 single-column-PK tables (89%)",
+			},
+		},
+	))
+
+	if !strings.Contains(out, "NO PRIMARY KEY") {
+		t.Errorf("missing-key group should be titled:\n%s", out)
+	}
+	if !strings.Contains(out, "create synthetic column idkey as primary key") {
+		t.Errorf("output should name the synthetic column:\n%s", out)
+	}
+	if !strings.Contains(out, "schema convention") {
+		t.Errorf("output should carry the provenance note:\n%s", out)
+	}
+}
+
+func TestHotColumnSuggestionShowsIndexMethodAndProbeVerdict(t *testing.T) {
+	out := render(t, result(
+		model.Coverage{TablesTotal: 1, TablesAnalyzed: 1},
+		model.Finding{
+			Kind:   model.FindingUnindexedHotColumn,
+			Object: "public.evento.dados",
+			Suggestion: &model.Suggestion{
+				Kind:        model.SuggestCreateIndex,
+				Columns:     []string{"dados"},
+				IndexMethod: "gin",
+			},
+		},
+	))
+
+	if !strings.Contains(out, "HOT COLUMN") {
+		t.Errorf("hot-column group should be titled:\n%s", out)
+	}
+	if !strings.Contains(out, "create index using gin (dados)") {
+		t.Errorf("output should name the recommended index method:\n%s", out)
+	}
+}
+
+// TestUnverifiedKeyProbeNeverShowsColumns pins the rule that an unconfirmed
+// candidate key is never presented with named columns: a reader cannot tell
+// "proven not unique" from "timed out" from the columns alone.
+func TestUnverifiedKeyProbeNeverShowsColumns(t *testing.T) {
+	out := render(t, result(
+		model.Coverage{TablesTotal: 1, TablesAnalyzed: 1},
+		model.Finding{
+			Kind:   model.FindingMissingPrimaryKey,
+			Object: "public.log_evento",
+			Suggestion: &model.Suggestion{
+				Kind:     model.SuggestCreatePrimaryKey,
+				KeyProbe: model.KeyProbeUnverified,
+				Note:     "tried 2 candidate key(s); none confirmed unique",
+			},
+		},
+	))
+
+	if !strings.Contains(out, "candidate key not yet probed") {
+		t.Errorf("an unverified suggestion must not imply named columns:\n%s", out)
+	}
+	if !strings.Contains(out, "unverified") {
+		t.Errorf("output should carry the probe verdict:\n%s", out)
+	}
+}
+
+func TestKeyProbesSkippedAppearInCoverage(t *testing.T) {
+	out := render(t, result(model.Coverage{
+		TablesTotal:      1,
+		TablesAnalyzed:   1,
+		KeyProbesSkipped: []model.SkippedKeyProbe{{Table: "public.big_table", Reason: "exceeds --probe-keys-max-rows"}},
+	}))
+
+	if !strings.Contains(out, "public.big_table") || !strings.Contains(out, "not probed against data") {
+		t.Errorf("a skipped key probe must be visible in coverage, not silent:\n%s", out)
+	}
+}
+
 func TestUnknownStatsResetIsFlagged(t *testing.T) {
 	out := render(t, result(model.Coverage{TablesTotal: 1, TablesAnalyzed: 1}))
 

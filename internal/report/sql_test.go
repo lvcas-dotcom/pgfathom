@@ -223,6 +223,199 @@ func TestValidateIsSeparateAndCommented(t *testing.T) {
 	}
 }
 
+// missingKeyResult carries a table with a promotable unique and a table
+// confirmed by a full-scan probe, the two shapes suggested_keys.sql acts on.
+func missingKeyResult() *model.Result {
+	r := model.NewResult(goldenVersion, "", goldenTime(), model.Coverage{TablesTotal: 2, TablesAnalyzed: 2})
+	r.ServerVersion = goldenServer
+	r.Schemas = []model.Schema{{
+		Name: "public",
+		Tables: []model.Table{
+			{
+				Schema: "public", Name: "cadastro",
+				Columns: []model.Column{{Name: "cpf", Nullable: false}},
+				Uniques: []model.UniqueConstraint{{Name: "cadastro_cpf_key", Columns: []string{"cpf"}}},
+			},
+			{
+				Schema: "public", Name: "item_pedido",
+				Columns: []model.Column{{Name: "pedido_id", Nullable: false}, {Name: "sequencia", Nullable: false}},
+			},
+		},
+	}}
+	r.Findings = []model.Finding{
+		{
+			Kind: model.FindingMissingPrimaryKey, Object: "public.cadastro",
+			Suggestion: &model.Suggestion{Kind: model.SuggestPromoteUnique, Columns: []string{"cpf"}},
+		},
+		{
+			Kind: model.FindingMissingPrimaryKey, Object: "public.item_pedido",
+			Suggestion: &model.Suggestion{
+				Kind: model.SuggestCreatePrimaryKey, Columns: []string{"pedido_id", "sequencia"},
+				KeyProbe: model.KeyProbeConfirmed,
+			},
+		},
+	}
+	return r
+}
+
+// TestSuggestedKeysPromotesExistingUniqueViaThreeStepCommented pins the fix:
+// the constraint's own index cannot be reused by USING INDEX (it is already
+// tied to that constraint), so promotion builds a fresh index instead, and
+// the whole sequence stays commented like every other CONCURRENTLY path in
+// this file — it still scans the table, so it is lock-light, not free, and
+// not meant to run unreviewed.
+func TestSuggestedKeysPromotesExistingUniqueViaThreeStepCommented(t *testing.T) {
+	content := artifactByName(t, report.AuditArtifacts(missingKeyResult()), report.FileSuggestedKeys).Content
+
+	want := []string{
+		`CREATE UNIQUE INDEX CONCURRENTLY "ux_cadastro_cpf" ON "public"."cadastro" ("cpf");`,
+		`ADD PRIMARY KEY USING INDEX "ux_cadastro_cpf";`,
+		`DROP CONSTRAINT "cadastro_cpf_key";`,
+	}
+	for _, w := range want {
+		if !strings.Contains(content, w) {
+			t.Errorf("expected the three-step promotion to contain %q:\n%s", w, content)
+		}
+	}
+
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		touches := strings.Contains(line, "ux_cadastro_cpf") || strings.Contains(line, `DROP CONSTRAINT "cadastro_cpf_key"`)
+		if touches && !strings.HasPrefix(trimmed, "--") {
+			t.Errorf("promoting an existing unique still scans to build the new index, must stay commented: %q", line)
+		}
+	}
+}
+
+func TestSuggestedKeysConfirmedCompositeUsesTwoStepCommented(t *testing.T) {
+	content := artifactByName(t, report.AuditArtifacts(missingKeyResult()), report.FileSuggestedKeys).Content
+
+	if !strings.Contains(content, `CREATE UNIQUE INDEX CONCURRENTLY`) {
+		t.Errorf("a key with no existing unique must build one first:\n%s", content)
+	}
+	if !strings.Contains(content, `"pedido_id", "sequencia"`) {
+		t.Errorf("both composite columns must be named:\n%s", content)
+	}
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if (strings.Contains(line, "CREATE UNIQUE INDEX CONCURRENTLY") ||
+			strings.Contains(line, "ADD PRIMARY KEY USING INDEX")) && !strings.HasPrefix(trimmed, "--") {
+			t.Errorf("CONCURRENTLY build-then-promote must stay commented: %q", line)
+		}
+	}
+}
+
+// TestUnverifiedKeySuggestionProducesNoDDL pins the rule that an unconfirmed
+// candidate key never turns into DDL: the file states that instead of
+// guessing at columns a probe could not confirm.
+func TestUnverifiedKeySuggestionProducesNoDDL(t *testing.T) {
+	r := model.NewResult(goldenVersion, "", goldenTime(), model.Coverage{TablesTotal: 1, TablesAnalyzed: 1})
+	r.Schemas = []model.Schema{{Name: "public", Tables: []model.Table{{Schema: "public", Name: "log_evento"}}}}
+	r.Findings = []model.Finding{{
+		Kind: model.FindingMissingPrimaryKey, Object: "public.log_evento",
+		Suggestion: &model.Suggestion{Kind: model.SuggestCreatePrimaryKey, KeyProbe: model.KeyProbeUnverified},
+	}}
+
+	content := artifactByName(t, report.AuditArtifacts(r), report.FileSuggestedKeys).Content
+
+	if strings.Contains(content, "CREATE") || strings.Contains(content, "ALTER TABLE") {
+		t.Errorf("an unverified candidate must not produce DDL:\n%s", content)
+	}
+	if !strings.Contains(content, "no candidate was confirmed") {
+		t.Errorf("the file must say why nothing was generated:\n%s", content)
+	}
+}
+
+// TestSuggestedKeysSyntheticColumnUsesTwoStepCommented pins the same
+// commented, two-step discipline as the confirmed-composite case, plus the
+// rewrite caveat that is specific to adding a brand-new identity column.
+func TestSuggestedKeysSyntheticColumnUsesTwoStepCommented(t *testing.T) {
+	r := model.NewResult(goldenVersion, "", goldenTime(), model.Coverage{TablesTotal: 1, TablesAnalyzed: 1})
+	r.Schemas = []model.Schema{{Name: "public", Tables: []model.Table{{Schema: "public", Name: "log_evento"}}}}
+	r.Findings = []model.Finding{{
+		Kind: model.FindingMissingPrimaryKey, Object: "public.log_evento",
+		Suggestion: &model.Suggestion{
+			Kind: model.SuggestSyntheticPrimaryKey, Columns: []string{"idkey"},
+			Note: "user-provided name",
+		},
+	}}
+
+	content := artifactByName(t, report.AuditArtifacts(r), report.FileSuggestedKeys).Content
+
+	if !strings.Contains(content, `ADD COLUMN "idkey" bigint GENERATED ALWAYS AS IDENTITY`) {
+		t.Errorf("the file must declare the new identity column:\n%s", content)
+	}
+	if !strings.Contains(content, "already rewrites it") {
+		t.Errorf("the file must note the unavoidable rewrite cost:\n%s", content)
+	}
+	if !strings.Contains(content, "user-provided name") {
+		t.Errorf("the file must carry the suggestion's provenance note:\n%s", content)
+	}
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if (strings.Contains(line, "ADD COLUMN") || strings.Contains(line, "CREATE UNIQUE INDEX CONCURRENTLY") ||
+			strings.Contains(line, "ADD PRIMARY KEY USING INDEX")) && !strings.HasPrefix(trimmed, "--") {
+			t.Errorf("a synthetic column is never executed by the tool, all three steps must stay commented: %q", line)
+		}
+	}
+}
+
+// hotColumnResult carries one btree-worthy join column and one containment
+// column needing GIN with a trigram-adjacent operator class, to exercise
+// suggested_indexes.sql.
+func hotColumnResult() *model.Result {
+	r := model.NewResult(goldenVersion, "", goldenTime(), model.Coverage{TablesTotal: 2, TablesAnalyzed: 2})
+	r.Schemas = []model.Schema{{
+		Name: "public",
+		Tables: []model.Table{
+			{Schema: "public", Name: "pedido"},
+			{Schema: "public", Name: "evento"},
+		},
+	}}
+	r.Findings = []model.Finding{
+		{
+			Kind: model.FindingUnindexedHotColumn, Object: "public.pedido.cliente_id",
+			Suggestion: &model.Suggestion{Kind: model.SuggestCreateIndex, Columns: []string{"cliente_id"}, IndexMethod: "btree"},
+		},
+		{
+			Kind: model.FindingUnindexedHotColumn, Object: "public.evento.nome",
+			Suggestion: &model.Suggestion{
+				Kind: model.SuggestCreateIndex, Columns: []string{"nome"},
+				IndexMethod: "gin", IndexOpclass: "gin_trgm_ops",
+			},
+		},
+	}
+	return r
+}
+
+func TestSuggestedIndexesUseConcurrentlyAndStayCommented(t *testing.T) {
+	content := artifactByName(t, report.AuditArtifacts(hotColumnResult()), report.FileSuggestedIndexes).Content
+
+	for _, line := range strings.Split(content, "\n") {
+		if strings.Contains(line, "CREATE INDEX") && !strings.HasPrefix(strings.TrimSpace(line), "--") {
+			t.Errorf("CREATE INDEX CONCURRENTLY must stay commented, the same discipline every "+
+				"CONCURRENTLY statement in this package follows: %q", line)
+		}
+	}
+	if !strings.Contains(content, "CREATE INDEX CONCURRENTLY") {
+		t.Errorf("expected a CONCURRENTLY suggestion:\n%s", content)
+	}
+}
+
+func TestSuggestedIndexesCarryOperatorClass(t *testing.T) {
+	content := artifactByName(t, report.AuditArtifacts(hotColumnResult()), report.FileSuggestedIndexes).Content
+
+	if !strings.Contains(content, `USING gin ("nome" gin_trgm_ops)`) {
+		t.Errorf("the trigram operator class must be attached to the column:\n%s", content)
+	}
+	if !strings.Contains(content, "CREATE EXTENSION IF NOT EXISTS pg_trgm") {
+		t.Errorf("a gin_trgm_ops recommendation must remind the reader what it depends on:\n%s", content)
+	}
+	if !strings.Contains(content, `USING btree ("cliente_id")`) {
+		t.Errorf("a plain btree recommendation must not carry an operator class:\n%s", content)
+	}
+}
+
 // TestGenerationIsDeterministic is what makes golden files and run-to-run
 // comparison possible at all.
 func TestGenerationIsDeterministic(t *testing.T) {

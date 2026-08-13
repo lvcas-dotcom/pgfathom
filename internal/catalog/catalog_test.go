@@ -354,7 +354,7 @@ func TestQueriesTouchOnlyTheCatalog(t *testing.T) {
 	allowed := map[string]bool{
 		"pg_class": true, "pg_namespace": true, "pg_attribute": true, "pg_type": true,
 		"pg_attrdef": true, "pg_constraint": true, "pg_index": true, "pg_inherits": true,
-		"pg_stat_user_tables": true, "pg_stat_database": true,
+		"pg_stat_user_tables": true, "pg_stat_database": true, "pg_extension": true,
 		"unnest": true, "lateral": true,
 	}
 

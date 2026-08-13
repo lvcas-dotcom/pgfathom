@@ -188,6 +188,23 @@ func validateOne(ctx context.Context, pool Beginner, c model.Candidate, rows map
 	return c, false, nil
 }
 
+// statementTimeoutMillis converts a positive timeout to the integer
+// milliseconds statement_timeout expects, rounded up rather than truncated.
+// Duration.Milliseconds truncates towards zero, so any caller-supplied
+// timeout under 1ms — an aggressive per-candidate ceiling, or a test proving
+// the timeout path — would otherwise floor to 0, and 0 means "disabled" to
+// Postgres: the one ceiling meant to fire the most reliably would instead be
+// the one silently switched off. Callers already treat timeout <= 0 as "leave
+// the session default alone" before this is reached, so a positive input here
+// always means a real ceiling was asked for and must never resolve to none.
+func statementTimeoutMillis(timeout time.Duration) int64 {
+	ms := timeout.Milliseconds()
+	if ms < 1 {
+		ms = 1
+	}
+	return ms
+}
+
 // runQuery executes one validation inside its own read-only transaction, so
 // the SET LOCAL ceiling dies with it.
 func runQuery(ctx context.Context, pool Beginner, query string, timeout time.Duration) (model.Validation, error) {
@@ -200,7 +217,7 @@ func runQuery(ctx context.Context, pool Beginner, query string, timeout time.Dur
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 
 	if timeout > 0 {
-		if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", timeout.Milliseconds())); err != nil {
+		if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL statement_timeout = %d", statementTimeoutMillis(timeout))); err != nil {
 			return v, err
 		}
 	}

@@ -53,15 +53,23 @@ func contractResult() *model.Result {
 		StatsPrefilter: true, CandidatesStatsChecked: 9,
 		CandidatesStatsRejected: 4, CandidatesWithoutStats: 1,
 		StatsResetAt: &resetAt, PgStatStatements: true,
+		KeyProbesSkipped: []model.SkippedKeyProbe{
+			{Table: "public.big_table", Reason: "exceeds --probe-keys-max-rows"},
+		},
 	})
 	r.Duration = goldenDuration
 	r.ServerVersion = goldenServer
 	r.Naming = model.NamingDetection{
-		Enabled:        true,
-		ColumnSuffixes: []model.NamingEvidence{{Affix: "_idkey", Occurrences: 102, Share: 0.22}},
+		Enabled: true,
+		ColumnSuffixes: []model.NamingEvidence{
+			{Affix: "_idkey", Occurrences: 102, Share: 0.22, Examples: []string{"imovel.lote_idkey"}},
+		},
 		ColumnPrefixes: []model.NamingEvidence{{Affix: "cod_", Occurrences: 41, Share: 0.09}},
 		TablePrefixes:  []model.NamingEvidence{{Affix: "tpl_", Occurrences: 88, Share: 0.26}},
-		DeclaredKeys:   470, Tables: 338,
+		PrimaryKeyNames: []model.NamingEvidence{
+			{Affix: "idkey", Occurrences: 300, Share: 0.89, Examples: []string{"cliente", "pedido"}},
+		},
+		DeclaredKeys: 470, Tables: 338, SinglePKTables: 338,
 	}
 
 	r.Schemas = []model.Schema{{
@@ -73,7 +81,7 @@ func contractResult() *model.Result {
 				Nullable: true, Default: "NULL", Position: 2, Comment: "referencia ao cliente",
 			}},
 			PrimaryKey: []string{"id"},
-			Uniques:    [][]string{{"numero"}},
+			Uniques:    []model.UniqueConstraint{{Name: "pedido_numero_key", Columns: []string{"numero"}}},
 			ForeignKeys: []model.ForeignKey{{
 				Name: "pedido_cliente_fkey", Columns: []string{"cliente_id"},
 				RefSchema: "public", RefTable: "cliente", RefColumns: []string{"id"},
@@ -121,10 +129,20 @@ func contractResult() *model.Result {
 	}
 	r.Discarded = []model.Candidate{verdictCandidate("log", "status_id", "status",
 		model.VerdictRejected, nil, "low containment: the name match is a coincidence")}
-	r.Findings = []model.Finding{{
-		Kind: model.FindingNotValidConstraint, Object: "public.pedido",
-		Detail: "never verified", Metrics: map[string]int64{"rows": 1_284_000},
-	}}
+	r.Findings = []model.Finding{
+		{
+			Kind: model.FindingNotValidConstraint, Object: "public.pedido",
+			Detail: "never verified", Metrics: map[string]int64{"rows": 1_284_000},
+		},
+		{
+			Kind: model.FindingMissingPrimaryKey, Object: "public.cadastro",
+			Detail: "no primary key",
+			Suggestion: &model.Suggestion{
+				Kind: model.SuggestCreatePrimaryKey, Columns: []string{"cpf"},
+				IndexMethod: "btree", Note: "candidate confirmed by a full scan", KeyProbe: model.KeyProbeConfirmed,
+			},
+		},
+	}
 
 	return r
 }

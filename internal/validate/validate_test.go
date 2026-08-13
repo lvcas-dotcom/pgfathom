@@ -3,9 +3,37 @@ package validate
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lvcas-dotcom/pgfathom/internal/model"
 )
+
+// TestStatementTimeoutMillisNeverDisablesTheCeiling pins the bug this
+// function exists to close: Duration.Milliseconds truncates toward zero, and
+// 0 means "no limit" to Postgres — the one input (a sub-millisecond timeout)
+// meant to fire the most reliably would otherwise silently turn the ceiling
+// off instead.
+func TestStatementTimeoutMillisNeverDisablesTheCeiling(t *testing.T) {
+	tests := []struct {
+		name    string
+		timeout time.Duration
+		want    int64
+	}{
+		{"one nanosecond rounds up to one millisecond, never zero", time.Nanosecond, 1},
+		{"one microsecond rounds up to one millisecond, never zero", time.Microsecond, 1},
+		{"exactly one millisecond stays one", time.Millisecond, 1},
+		{"whole milliseconds pass through unchanged", 250 * time.Millisecond, 250},
+		{"seconds convert exactly", 3 * time.Second, 3000},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := statementTimeoutMillis(tt.timeout); got != tt.want {
+				t.Errorf("statementTimeoutMillis(%v) = %d, want %d", tt.timeout, got, tt.want)
+			}
+		})
+	}
+}
 
 func val(method model.ValidationMethod, sampled, notNull, distinct, orphanRows, orphanVals int64) model.Validation {
 	return model.Validation{

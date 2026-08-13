@@ -26,6 +26,13 @@ const (
 	// tokOther is anything the extractor must see as "not a name": numbers,
 	// parameters, unrecognized bytes.
 	tokOther
+
+	// tokString is a string literal's content, unescaped. It exists only so a
+	// LIKE pattern can be read to tell an infix wildcard from a prefix one;
+	// nothing else inspects it, and no equals sign inside one was ever tokenized
+	// in the first place, so this adds no new way for a phantom predicate to
+	// appear.
+	tokString
 )
 
 type token struct {
@@ -33,9 +40,11 @@ type token struct {
 	text string
 }
 
-// tokenize walks the SQL and emits only what extraction needs. Comments,
-// strings and dollar-quoted blocks are consumed and never emitted: an "="
-// inside any of them would otherwise become a phantom predicate.
+// tokenize walks the SQL and emits only what extraction needs. Comments and
+// dollar-quoted blocks are consumed and never emitted. A string literal is
+// emitted as one opaque tokString carrying its content — never re-tokenized —
+// so an "=" or other operator inside one can never become a phantom
+// predicate; the content exists only so a LIKE pattern can be read.
 func tokenize(sql string) []token {
 	var out []token
 	i := 0
@@ -54,7 +63,9 @@ func tokenize(sql string) []token {
 			i = skipBlockComment(sql, i+2)
 
 		case c == '\'':
-			i = skipString(sql, i+1, isEscapePrefixed(sql, i))
+			text, next := readString(sql, i+1, isEscapePrefixed(sql, i))
+			out = append(out, token{kind: tokString, text: text})
+			i = next
 
 		case c == '$':
 			next, ok := skipDollarQuoted(sql, i)
@@ -133,23 +144,29 @@ func isEscapePrefixed(s string, i int) bool {
 		(i < 2 || !isIdentPart(s[i-2]))
 }
 
-func skipString(s string, i int, backslashEscapes bool) int {
+func readString(s string, i int, backslashEscapes bool) (string, int) {
+	var b strings.Builder
 	for i < len(s) {
 		switch {
 		case backslashEscapes && s[i] == '\\':
+			if i+1 < len(s) {
+				b.WriteByte(s[i+1])
+			}
 			i += 2
 		case s[i] == '\'':
 			// '' is a literal quote, not the end.
 			if hasAt(s, i+1, '\'') {
+				b.WriteByte('\'')
 				i += 2
 				continue
 			}
-			return i + 1
+			return b.String(), i + 1
 		default:
+			b.WriteByte(s[i])
 			i++
 		}
 	}
-	return i
+	return b.String(), i
 }
 
 // skipDollarQuoted consumes a $tag$...$tag$ block starting at i. It reports
