@@ -22,8 +22,25 @@ func TrigramSimilarity(a, b string) float64 {
 		return 0
 	}
 
-	ta := trigramSet(a)
-	tb := trigramSet(b)
+	return dice(trigramSet(a), trigramSet(b))
+}
+
+// dice is the coefficient over trigram sets already extracted.
+//
+// It exists apart from TrigramSimilarity because the generation fallback
+// compares one column against every table in scope: extracting a table's
+// trigrams inside that loop extracts the same set once per column in the
+// database, which on a schema of a thousand tables is twelve million
+// extractions of a thousand distinct answers.
+func dice(ta, tb map[string]bool) float64 {
+	if len(ta) == 0 || len(tb) == 0 {
+		return 0
+	}
+
+	// Iterating the smaller set costs the same lookups and touches less memory.
+	if len(tb) < len(ta) {
+		ta, tb = tb, ta
+	}
 
 	shared := 0
 	for tri := range ta {

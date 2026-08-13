@@ -8,6 +8,28 @@ Versions follow [semantic versioning](https://semver.org/spec/v2.0.0.html). Whil
 the major version is `0`, the command-line surface and the JSON contract may
 change between minor versions; both are versioned and documented when they do.
 
+## [Unreleased]
+
+### Added
+
+- **`pgfathom audit` reports structural inefficiency**, not just missing
+  integrity: tables with no primary key, and hot columns with no index behind
+  them. Where a table has no declared key, it probes candidate column sets
+  against the data and reports one as promotable only when a full scan proves
+  every row distinct and non-null — never on the strength of a name.
+- **Lexical similarity raises candidates the shipped profile cannot reach.**
+  When no naming convention resolves a column, it is compared against table
+  names by trigram similarity, the same coefficient `pg_trgm` uses. It recovers
+  relationships like `idkey_operador → operadorbasecalculo`, where the name is
+  reordered and abbreviated. The signal is deliberately weaker than a profile
+  match, because lexical proximity carries no stated convention behind it.
+
+### Changed
+
+- The lexical fallback no longer extracts a table's trigrams once per column in
+  the database. On a 1,000-table schema the generation stage drops from 17.4s to
+  2.5s and from 16 GB of allocation to 11 MB.
+
 ## [0.1.2] — 2026-08-13
 
 ### Fixed
