@@ -7,353 +7,353 @@ good for comparing stages against each other, and runs on one machine against
 each other; they are not a performance promise. That is why they live outside
 the recall file, which is stable across runs.
 
-Tool `dev` · linux/amd64 · 12 CPUs · whole run in 6s.
+Tool `dev` · linux/amd64 · 12 CPUs · whole run in 52s.
 
 ## gitlab
 
-### profile alone — 836ms
+### profile alone — 4.88s
 
 | Stage | Time |
 |---|---:|
-| catalog | 366ms |
-| candidate generation | 166ms |
-| statistical prefilter | 24ms |
-| validation | 280ms |
+| catalog | 1.43s |
+| candidate generation | 2.737s |
+| statistical prefilter | 29ms |
+| validation | 682ms |
 
 | Funnel | |
 |---|---:|
-| raised | 991 |
-| checked by the prefilter | 990 |
+| raised | 14344 |
+| checked by the prefilter | 1066 |
 | rejected by the prefilter | 0 |
-| without statistics | 990 |
-| validation queries | 990 |
+| without statistics | 1066 |
+| validation queries | 1066 |
 | hit the time ceiling | 0 |
 
-### + detection — 682ms
+### + detection — 4.285s
 
 | Stage | Time |
 |---|---:|
-| catalog | 324ms |
+| catalog | 1.077s |
 | naming detection | 1ms |
-| candidate generation | 158ms |
-| statistical prefilter | 16ms |
-| validation | 182ms |
+| candidate generation | 2.742s |
+| statistical prefilter | 30ms |
+| validation | 433ms |
 
 | Funnel | |
 |---|---:|
-| raised | 991 |
-| checked by the prefilter | 990 |
+| raised | 14344 |
+| checked by the prefilter | 1066 |
 | rejected by the prefilter | 0 |
-| without statistics | 990 |
-| validation queries | 990 |
+| without statistics | 1066 |
+| validation queries | 1066 |
 | hit the time ceiling | 0 |
 
-### + usage evidence — 637ms
+### + usage evidence — 3.785s
 
 | Stage | Time |
 |---|---:|
-| catalog | 302ms |
+| catalog | 656ms |
+| naming detection | 2ms |
+| usage evidence | 25ms |
+| candidate generation | 2.748s |
+| statistical prefilter | 18ms |
+| validation | 335ms |
+
+| Funnel | |
+|---|---:|
+| raised | 14347 |
+| checked by the prefilter | 1069 |
+| rejected by the prefilter | 0 |
+| without statistics | 1069 |
+| validation queries | 1069 |
+| hit the time ceiling | 0 |
+
+### profile alone — 4.581s
+
+| Stage | Time |
+|---|---:|
+| catalog | 949ms |
+| candidate generation | 2.917s |
+| statistical prefilter | 30ms |
+| validation | 683ms |
+
+| Funnel | |
+|---|---:|
+| raised | 19015 |
+| checked by the prefilter | 1754 |
+| rejected by the prefilter | 0 |
+| without statistics | 1754 |
+| validation queries | 1754 |
+| hit the time ceiling | 0 |
+
+### + detection — 4.064s
+
+| Stage | Time |
+|---|---:|
+| catalog | 629ms |
+| naming detection | 1ms |
+| candidate generation | 2.867s |
+| statistical prefilter | 18ms |
+| validation | 547ms |
+
+| Funnel | |
+|---|---:|
+| raised | 19015 |
+| checked by the prefilter | 1754 |
+| rejected by the prefilter | 0 |
+| without statistics | 1754 |
+| validation queries | 1754 |
+| hit the time ceiling | 0 |
+
+### + usage evidence — 4.122s
+
+| Stage | Time |
+|---|---:|
+| catalog | 660ms |
 | naming detection | 1ms |
 | usage evidence | 16ms |
-| candidate generation | 152ms |
-| statistical prefilter | 15ms |
-| validation | 150ms |
+| candidate generation | 2.911s |
+| statistical prefilter | 21ms |
+| validation | 513ms |
 
 | Funnel | |
 |---|---:|
-| raised | 994 |
-| checked by the prefilter | 993 |
+| raised | 19018 |
+| checked by the prefilter | 1757 |
 | rejected by the prefilter | 0 |
-| without statistics | 993 |
-| validation queries | 993 |
-| hit the time ceiling | 0 |
-
-### profile alone — 745ms
-
-| Stage | Time |
-|---|---:|
-| catalog | 250ms |
-| candidate generation | 156ms |
-| statistical prefilter | 15ms |
-| validation | 323ms |
-
-| Funnel | |
-|---|---:|
-| raised | 1663 |
-| checked by the prefilter | 1662 |
-| rejected by the prefilter | 0 |
-| without statistics | 1662 |
-| validation queries | 1662 |
-| hit the time ceiling | 0 |
-
-### + detection — 674ms
-
-| Stage | Time |
-|---|---:|
-| catalog | 232ms |
-| naming detection | 0s |
-| candidate generation | 154ms |
-| statistical prefilter | 16ms |
-| validation | 272ms |
-
-| Funnel | |
-|---|---:|
-| raised | 1663 |
-| checked by the prefilter | 1662 |
-| rejected by the prefilter | 0 |
-| without statistics | 1662 |
-| validation queries | 1662 |
-| hit the time ceiling | 0 |
-
-### + usage evidence — 687ms
-
-| Stage | Time |
-|---|---:|
-| catalog | 231ms |
-| naming detection | 0s |
-| usage evidence | 15ms |
-| candidate generation | 160ms |
-| statistical prefilter | 16ms |
-| validation | 263ms |
-
-| Funnel | |
-|---|---:|
-| raised | 1666 |
-| checked by the prefilter | 1665 |
-| rejected by the prefilter | 0 |
-| without statistics | 1665 |
-| validation queries | 1665 |
+| without statistics | 1757 |
+| validation queries | 1757 |
 | hit the time ceiling | 0 |
 
 ## discourse
 
-### profile alone — 163ms
+### profile alone — 470ms
 
 | Stage | Time |
 |---|---:|
-| catalog | 86ms |
-| candidate generation | 2ms |
-| statistical prefilter | 9ms |
-| validation | 66ms |
+| catalog | 127ms |
+| candidate generation | 233ms |
+| statistical prefilter | 10ms |
+| validation | 100ms |
 
 | Funnel | |
 |---|---:|
-| raised | 344 |
-| checked by the prefilter | 343 |
+| raised | 2125 |
+| checked by the prefilter | 403 |
 | rejected by the prefilter | 0 |
-| without statistics | 343 |
-| validation queries | 343 |
+| without statistics | 403 |
+| validation queries | 403 |
 | hit the time ceiling | 0 |
 
-### + detection — 113ms
+### + detection — 389ms
 
 | Stage | Time |
 |---|---:|
-| catalog | 58ms |
+| catalog | 78ms |
 | naming detection | 0s |
-| candidate generation | 2ms |
-| statistical prefilter | 7ms |
-| validation | 45ms |
+| candidate generation | 224ms |
+| statistical prefilter | 12ms |
+| validation | 75ms |
 
 | Funnel | |
 |---|---:|
-| raised | 365 |
-| checked by the prefilter | 336 |
+| raised | 2120 |
+| checked by the prefilter | 396 |
 | rejected by the prefilter | 0 |
-| without statistics | 336 |
-| validation queries | 336 |
+| without statistics | 396 |
+| validation queries | 396 |
 | hit the time ceiling | 0 |
 
-### + usage evidence — 125ms
-
-| Stage | Time |
-|---|---:|
-| catalog | 76ms |
-| naming detection | 0s |
-| usage evidence | 3ms |
-| candidate generation | 3ms |
-| statistical prefilter | 8ms |
-| validation | 35ms |
-
-| Funnel | |
-|---|---:|
-| raised | 365 |
-| checked by the prefilter | 336 |
-| rejected by the prefilter | 0 |
-| without statistics | 336 |
-| validation queries | 336 |
-| hit the time ceiling | 0 |
-
-### profile alone — 120ms
+### + usage evidence — 374ms
 
 | Stage | Time |
 |---|---:|
 | catalog | 75ms |
-| candidate generation | 2ms |
-| statistical prefilter | 8ms |
-| validation | 34ms |
+| naming detection | 0s |
+| usage evidence | 3ms |
+| candidate generation | 225ms |
+| statistical prefilter | 9ms |
+| validation | 61ms |
 
 | Funnel | |
 |---|---:|
-| raised | 349 |
-| checked by the prefilter | 348 |
+| raised | 2120 |
+| checked by the prefilter | 396 |
 | rejected by the prefilter | 0 |
-| without statistics | 348 |
-| validation queries | 348 |
+| without statistics | 396 |
+| validation queries | 396 |
 | hit the time ceiling | 0 |
 
-### + detection — 115ms
+### profile alone — 371ms
 
 | Stage | Time |
 |---|---:|
-| catalog | 62ms |
-| naming detection | 0s |
-| candidate generation | 2ms |
-| statistical prefilter | 7ms |
-| validation | 43ms |
+| catalog | 74ms |
+| candidate generation | 226ms |
+| statistical prefilter | 9ms |
+| validation | 61ms |
 
 | Funnel | |
 |---|---:|
-| raised | 371 |
-| checked by the prefilter | 340 |
+| raised | 2130 |
+| checked by the prefilter | 408 |
 | rejected by the prefilter | 0 |
-| without statistics | 340 |
-| validation queries | 340 |
+| without statistics | 408 |
+| validation queries | 408 |
 | hit the time ceiling | 0 |
 
-### + usage evidence — 98ms
+### + detection — 337ms
 
 | Stage | Time |
 |---|---:|
-| catalog | 60ms |
+| catalog | 59ms |
 | naming detection | 0s |
-| usage evidence | 1ms |
-| candidate generation | 2ms |
-| statistical prefilter | 7ms |
-| validation | 27ms |
+| candidate generation | 222ms |
+| statistical prefilter | 6ms |
+| validation | 49ms |
 
 | Funnel | |
 |---|---:|
-| raised | 371 |
-| checked by the prefilter | 340 |
+| raised | 2126 |
+| checked by the prefilter | 400 |
 | rejected by the prefilter | 0 |
-| without statistics | 340 |
-| validation queries | 340 |
+| without statistics | 400 |
+| validation queries | 400 |
+| hit the time ceiling | 0 |
+
+### + usage evidence — 344ms
+
+| Stage | Time |
+|---|---:|
+| catalog | 59ms |
+| naming detection | 0s |
+| usage evidence | 3ms |
+| candidate generation | 225ms |
+| statistical prefilter | 7ms |
+| validation | 50ms |
+
+| Funnel | |
+|---|---:|
+| raised | 2126 |
+| checked by the prefilter | 400 |
+| rejected by the prefilter | 0 |
+| without statistics | 400 |
+| validation queries | 400 |
 | hit the time ceiling | 0 |
 
 ## municipal-ptbr
 
-### profile alone — 100ms
+### profile alone — 432ms
 
 | Stage | Time |
 |---|---:|
-| catalog | 52ms |
-| candidate generation | 12ms |
-| statistical prefilter | 31ms |
-| validation | 5ms |
+| catalog | 182ms |
+| candidate generation | 71ms |
+| statistical prefilter | 158ms |
+| validation | 21ms |
 
 | Funnel | |
 |---|---:|
-| raised | 7 |
-| checked by the prefilter | 7 |
+| raised | 799 |
+| checked by the prefilter | 34 |
 | rejected by the prefilter | 0 |
-| without statistics | 7 |
-| validation queries | 7 |
+| without statistics | 34 |
+| validation queries | 34 |
 | hit the time ceiling | 0 |
 
-### + detection — 121ms
+### + detection — 429ms
 
 | Stage | Time |
 |---|---:|
-| catalog | 49ms |
+| catalog | 154ms |
 | naming detection | 0s |
-| candidate generation | 17ms |
-| statistical prefilter | 32ms |
-| validation | 23ms |
+| candidate generation | 61ms |
+| statistical prefilter | 164ms |
+| validation | 50ms |
 
 | Funnel | |
 |---|---:|
-| raised | 147 |
-| checked by the prefilter | 147 |
+| raised | 401 |
+| checked by the prefilter | 150 |
 | rejected by the prefilter | 0 |
-| without statistics | 147 |
-| validation queries | 147 |
+| without statistics | 150 |
+| validation queries | 150 |
 | hit the time ceiling | 0 |
 
-### + usage evidence — 85ms
+### + usage evidence — 199ms
 
 | Stage | Time |
 |---|---:|
-| catalog | 33ms |
+| catalog | 75ms |
 | naming detection | 0s |
-| usage evidence | 3ms |
-| candidate generation | 16ms |
-| statistical prefilter | 15ms |
+| usage evidence | 6ms |
+| candidate generation | 61ms |
+| statistical prefilter | 18ms |
+| validation | 39ms |
+
+| Funnel | |
+|---|---:|
+| raised | 401 |
+| checked by the prefilter | 150 |
+| rejected by the prefilter | 0 |
+| without statistics | 150 |
+| validation queries | 150 |
+| hit the time ceiling | 0 |
+
+### profile alone — 418ms
+
+| Stage | Time |
+|---|---:|
+| catalog | 138ms |
+| candidate generation | 83ms |
+| statistical prefilter | 179ms |
 | validation | 18ms |
 
 | Funnel | |
 |---|---:|
-| raised | 147 |
-| checked by the prefilter | 147 |
+| raised | 1277 |
+| checked by the prefilter | 58 |
 | rejected by the prefilter | 0 |
-| without statistics | 147 |
-| validation queries | 147 |
+| without statistics | 58 |
+| validation queries | 58 |
 | hit the time ceiling | 0 |
 
-### profile alone — 62ms
+### + detection — 190ms
 
 | Stage | Time |
 |---|---:|
-| catalog | 33ms |
-| candidate generation | 11ms |
-| statistical prefilter | 16ms |
-| validation | 2ms |
-
-| Funnel | |
-|---|---:|
-| raised | 7 |
-| checked by the prefilter | 7 |
-| rejected by the prefilter | 0 |
-| without statistics | 7 |
-| validation queries | 7 |
-| hit the time ceiling | 0 |
-
-### + detection — 91ms
-
-| Stage | Time |
-|---|---:|
-| catalog | 44ms |
+| catalog | 72ms |
 | naming detection | 0s |
-| candidate generation | 16ms |
-| statistical prefilter | 31ms |
-| validation | 1ms |
+| candidate generation | 85ms |
+| statistical prefilter | 19ms |
+| validation | 14ms |
 
 | Funnel | |
 |---|---:|
-| raised | 7 |
-| checked by the prefilter | 7 |
+| raised | 1277 |
+| checked by the prefilter | 58 |
 | rejected by the prefilter | 0 |
-| without statistics | 7 |
-| validation queries | 7 |
+| without statistics | 58 |
+| validation queries | 58 |
 | hit the time ceiling | 0 |
 
-### + usage evidence — 64ms
+### + usage evidence — 410ms
 
 | Stage | Time |
 |---|---:|
-| catalog | 31ms |
+| catalog | 125ms |
 | naming detection | 0s |
-| usage evidence | 1ms |
-| candidate generation | 16ms |
-| statistical prefilter | 14ms |
-| validation | 1ms |
+| usage evidence | 6ms |
+| candidate generation | 88ms |
+| statistical prefilter | 180ms |
+| validation | 11ms |
 
 | Funnel | |
 |---|---:|
-| raised | 7 |
-| checked by the prefilter | 7 |
+| raised | 1277 |
+| checked by the prefilter | 58 |
 | rejected by the prefilter | 0 |
-| without statistics | 7 |
-| validation queries | 7 |
+| without statistics | 58 |
+| validation queries | 58 |
 | hit the time ceiling | 0 |
 

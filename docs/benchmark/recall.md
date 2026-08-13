@@ -34,16 +34,16 @@ Tool `dev`.
 
 1426 tables and 1857 declared keys — the largest public truth set available. Needs btree_gist and pg_trgm, creates two schemas of its own, and has 101 partitioned tables.
 
-PostgreSQL 18.4 · profile `en` · 1054 tables · **1857 keys in the truth set**, 53 of them composite · commit `a399ea9614c4`
+PostgreSQL 16.14 · profile `en` · 1054 tables · **1857 keys in the truth set**, 53 of them composite · commit `a399ea9614c4`
 
 | Regime | Configuration | Recovered | Recall | of which composite | Candidates | Outside the truth set |
 |---|---|---:|---:|---:|---:|---:|
-| partial | profile alone | 577 of 929 | 62.1% | 0 of 53 | 990 | 413 |
-| partial | + detection | 577 of 929 | 62.1% | 0 of 53 | 990 | 413 |
-| partial | + usage evidence | 578 of 929 | 62.2% | 0 of 53 | 993 | 415 |
-| greenfield | profile alone | 1131 of 1857 | 60.9% | 1 of 53 | 1662 | 531 |
-| greenfield | + detection | 1131 of 1857 | 60.9% | 1 of 53 | 1662 | 531 |
-| greenfield | + usage evidence | 1132 of 1857 | 61.0% | 1 of 53 | 1665 | 533 |
+| partial | profile alone | 581 of 929 | 62.5% | 0 of 53 | 1066 | 485 |
+| partial | + detection | 581 of 929 | 62.5% | 0 of 53 | 1066 | 485 |
+| partial | + usage evidence | 582 of 929 | 62.6% | 0 of 53 | 1069 | 487 |
+| greenfield | profile alone | 1141 of 1857 | 61.4% | 1 of 53 | 1754 | 613 |
+| greenfield | + detection | 1141 of 1857 | 61.4% | 1 of 53 | 1754 | 613 |
+| greenfield | + usage evidence | 1142 of 1857 | 61.5% | 1 of 53 | 1757 | 615 |
 
 Candidates outside the truth set are **not false positives**. In a real schema
 a true relationship that was never declared is this tool's product; counting it
@@ -55,37 +55,39 @@ Coverage: 953 of 1054 tables analysed (90%). 101 partitioned.
 
 354 tables and 23 declared keys. Classic Rails keeps integrity in the application, so the denominator is tiny: this row measures what the tool proposes in a schema that declares almost nothing, not recall.
 
-PostgreSQL 18.4 · profile `en` · 351 tables · **23 keys in the truth set** · commit `e4f8b88ea34f`
+PostgreSQL 16.14 · profile `en` · 354 tables · **23 keys in the truth set** · commit `e4f8b88ea34f`
 
 | Regime | Configuration | Recovered | Recall | of which composite | Candidates | Outside the truth set |
 |---|---|---:|---:|---:|---:|---:|
-| partial | profile alone | 6 of 12 | 50.0% | 0 of 0 | 343 | 337 |
-| partial | + detection | 6 of 12 | 50.0% | 0 of 0 | 336 | 330 |
-| partial | + usage evidence | 6 of 12 | 50.0% | 0 of 0 | 336 | 330 |
-| greenfield | profile alone | 11 of 23 | 47.8% | 0 of 0 | 348 | 337 |
-| greenfield | + detection | 10 of 23 | 43.5% | 0 of 0 | 340 | 330 |
-| greenfield | + usage evidence | 10 of 23 | 43.5% | 0 of 0 | 340 | 330 |
+| partial | profile alone | 6 of 12 | 50.0% | 0 of 0 | 403 | 397 |
+| partial | + detection | 6 of 12 | 50.0% | 0 of 0 | 396 | 390 |
+| partial | + usage evidence | 6 of 12 | 50.0% | 0 of 0 | 396 | 390 |
+| greenfield | profile alone | 11 of 23 | 47.8% | 0 of 0 | 408 | 397 |
+| greenfield | + detection | 10 of 23 | 43.5% | 0 of 0 | 400 | 390 |
+| greenfield | + usage evidence | 10 of 23 | 43.5% | 0 of 0 | 400 | 390 |
 
 Candidates outside the truth set are **not false positives**. In a real schema
 a true relationship that was never declared is this tool's product; counting it
 as a defect would publish as an error the very thing being delivered.
 
-Coverage: 332 of 351 tables analysed (95%). 19 no_primary_key.
+Coverage: 332 of 354 tables analysed (94%). 22 no_primary_key.
 
 ## municipal-ptbr
 
 Real schema from a Brazilian municipal management vendor, DDL only, not redistributable — so this row is reproducible by whoever holds the dump rather than by everyone. 226 tables and 277 declared keys inside the schema, plus 9 reaching into sibling schemas that were not dumped. Its reference affix is `idkey_` and `_idkey`, which no shipped profile knows and detection has to read off the schema — which is why the two regimes differ here by eighty points.
 
-PostgreSQL 18.4 · profile `pt-br` · 226 tables · **277 keys in the truth set** · schema `geral`
+PostgreSQL 16.14 · profile `pt-br` · 226 tables · **277 keys in the truth set** · schema `geral`
+
+**10 statements of this dump did not apply** — a dump taken from a live database names roles, schemas and extensions that a throwaway server does not have. The numbers below describe what loaded.
 
 | Regime | Configuration | Recovered | Recall | of which composite | Candidates | Outside the truth set |
 |---|---|---:|---:|---:|---:|---:|
-| partial | profile alone | 5 of 139 | 3.6% | 0 of 0 | 7 | 2 |
-| partial | + detection | 117 of 139 | 84.2% | 0 of 0 | 147 | 30 |
-| partial | + usage evidence | 117 of 139 | 84.2% | 0 of 0 | 147 | 30 |
-| greenfield | profile alone | 5 of 277 | 1.8% | 0 of 0 | 7 | 2 |
-| greenfield | + detection | 5 of 277 | 1.8% | 0 of 0 | 7 | 2 |
-| greenfield | + usage evidence | 5 of 277 | 1.8% | 0 of 0 | 7 | 2 |
+| partial | profile alone | 24 of 139 | 17.3% | 0 of 0 | 34 | 10 |
+| partial | + detection | 118 of 139 | 84.9% | 0 of 0 | 150 | 32 |
+| partial | + usage evidence | 118 of 139 | 84.9% | 0 of 0 | 150 | 32 |
+| greenfield | profile alone | 46 of 277 | 16.6% | 0 of 0 | 58 | 12 |
+| greenfield | + detection | 46 of 277 | 16.6% | 0 of 0 | 58 | 12 |
+| greenfield | + usage evidence | 46 of 277 | 16.6% | 0 of 0 | 58 | 12 |
 
 Candidates outside the truth set are **not false positives**. In a real schema
 a true relationship that was never declared is this tool's product; counting it

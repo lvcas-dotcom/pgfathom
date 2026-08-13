@@ -400,23 +400,31 @@ integrity at all. Hardest case, and the one this tool exists for.
 
 | Schema | Tables | Keys | Regime | Profile alone | + detection | + join mining |
 |---|---:|---:|---|---:|---:|---:|
-| GitLab | 1,054 | 1,857 | partial | 62.1% | 62.1% | **62.2%** |
-| GitLab | 1,054 | 1,857 | greenfield | 60.9% | 60.9% | **61.0%** |
-| Municipal system (pt-BR) | 226 | 277 | partial | 3.6% | **84.2%** | 84.2% |
-| Municipal system (pt-BR) | 226 | 277 | greenfield | 1.8% | 1.8% | 1.8% |
+| GitLab | 1,054 | 1,857 | partial | 62.5% | 62.5% | **62.6%** |
+| GitLab | 1,054 | 1,857 | greenfield | 61.4% | 61.4% | **61.5%** |
+| Municipal system (pt-BR) | 226 | 277 | partial | 17.3% | **84.9%** | 84.9% |
+| Municipal system (pt-BR) | 226 | 277 | greenfield | **16.6%** | 16.6% | 16.6% |
 | Discourse | 354 | 23 | partial | **50.0%** | 50.0% | 50.0% |
 | Discourse | 354 | 23 | greenfield | **47.8%** | 43.5% | 43.5% |
 
 **The pt-BR row is why naming detection exists, in one number.** That vendor writes
 `idkey_lote` and `lote_idkey`; no shipped profile knows those affixes, and none should — the
 convention belongs to the schema, not to the language. Read off the keys the schema still
-declares, it falls out in a single pass and recovery goes from 3.6% to **84.2%**. Remove
-every key and detection has nothing left to read, which is the 1.8% on the line below.
+declares, it falls out in a single pass and recovery goes from 17.3% to **84.9%**.
+
+Remove every key and detection has nothing left to read — and that is the row below, where
+recovery holds at **16.6%** on the strength of lexical similarity alone. One relationship in
+six, from a schema that states nothing, in a language the shipped profile does not speak.
 
 Both numbers are true. Which one describes you depends on whether your database declares any
 integrity at all.
 
-**GitLab barely moves between regimes** — 1.2 points — because it writes `_id`, which the
+**A note on the first column.** "Profile alone" means detection and join mining are off; the
+lexical fallback is not a switch and is always on, so it is folded into that number. The
+municipal rows are where it shows: this same column read 3.6% and 1.8% before that fallback
+existed.
+
+**GitLab barely moves between regimes** — 1.1 points — because it writes `_id`, which the
 shipped `en` profile already knows. Detection has nothing to add where the convention is
 already the language's.
 
