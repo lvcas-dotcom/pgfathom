@@ -44,7 +44,8 @@ pedir autenticação a quem só quer experimentar.
    $ scripts/release-notes.sh v0.1.2
    ```
 
-3. Se o formato do relatório mudou nesta versão, regrave o exemplo do README.
+3. Se o formato do relatório mudou nesta versão, rode `make demo-svg` e cole o
+   texto que ele imprime no bloco de exemplo do README.
    Ele é execução real contra o schema de `docs/DEMO.md`, e o que o torna útil
    é ser verdade — um exemplo que já foi verdade é pior que nenhum, porque
    ninguém desconfia dele. O número de versão na gravação pode ficar para trás;

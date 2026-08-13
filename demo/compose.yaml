@@ -1,0 +1,36 @@
+# The shortest path from "what is this" to seeing it work.
+#
+#   docker compose -f demo/compose.yaml up
+#
+# It starts a throwaway PostgreSQL, loads a schema that declares almost none of
+# its own integrity, and runs discover against it. Nothing here touches anything
+# you already have: the database lives in the container and dies with it.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: demo
+      POSTGRES_DB: loja
+    volumes:
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      # The report has to run against a loaded schema, and postgres reports
+      # ready once before running the init scripts. Asking for a table that the
+      # script creates last is the only signal that the load actually finished.
+      test: ["CMD-SHELL", "psql -U postgres -d loja -c 'SELECT 1 FROM nota_fiscal LIMIT 1' || exit 1"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+
+  pgfathom:
+    image: ghcr.io/lvcas-dotcom/pgfathom:latest
+    depends_on:
+      db:
+        condition: service_healthy
+    command:
+      - discover
+      - --dsn
+      - postgres://postgres:demo@db:5432/loja?sslmode=disable
+      - --schema
+      - public
+      - --full
