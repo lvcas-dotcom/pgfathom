@@ -204,10 +204,21 @@ type indexedTarget struct {
 // Generate already walks them. The affix index is keyed by normalized form
 // and cannot be searched by proximity — the similarity fallback needs a
 // plain list to scan instead.
-func flattenTables(schemas []model.Schema) []model.Table {
-	var tables []model.Table
+// similarityTarget is a table with the trigrams of its own name already
+// extracted. The fallback compares one column against every one of these, so
+// extracting them inside that loop would extract the same set once per column
+// in the database rather than once per table.
+type similarityTarget struct {
+	table    model.Table
+	trigrams map[string]bool
+}
+
+func flattenTables(schemas []model.Schema) []similarityTarget {
+	var tables []similarityTarget
 	for _, s := range schemas {
-		tables = append(tables, s.Tables...)
+		for _, t := range s.Tables {
+			tables = append(tables, similarityTarget{table: t, trigrams: trigramSet(t.Name)})
+		}
 	}
 	return tables
 }
@@ -242,7 +253,7 @@ func resolveKeyTarget(child model.KeyRef, targetName string, table model.Table) 
 	return target{table: table, pkColumn: pk}, nil, true
 }
 
-func generateFor(res *Result, index map[string][]indexedTarget, tables []model.Table, t model.Table, col model.Column, opts Options) {
+func generateFor(res *Result, index map[string][]indexedTarget, tables []similarityTarget, t model.Table, col model.Column, opts Options) {
 	entity := opts.Profile.EntityName(col.Name)
 	if entity == "" {
 		return
@@ -304,18 +315,21 @@ func resolveByAffix(res *Result, indexed []indexedTarget, child model.KeyRef) []
 // scans every table in scope by lexical proximity to the entity name instead
 // of the profile's affix/plural forms. Only called by generateFor when the
 // affix index found nothing.
-func resolveBySimilarity(res *Result, tables []model.Table, entity string, child model.KeyRef, opts Options) []nameMatch {
+func resolveBySimilarity(res *Result, tables []similarityTarget, entity string, child model.KeyRef, opts Options) []nameMatch {
 	type scored struct {
 		table      model.Table
 		similarity float64
 	}
 
+	// Extracted once for the column, against sets the targets already carry.
+	entityTrigrams := trigramSet(entity)
+
 	cutoff := opts.minNameSimilarity()
 	var above []scored
-	for _, table := range tables {
-		similarity := TrigramSimilarity(entity, table.Name)
+	for _, target := range tables {
+		similarity := dice(entityTrigrams, target.trigrams)
 		if similarity >= cutoff {
-			above = append(above, scored{table: table, similarity: similarity})
+			above = append(above, scored{table: target.table, similarity: similarity})
 		}
 	}
 

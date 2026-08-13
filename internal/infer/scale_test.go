@@ -94,3 +94,46 @@ func BenchmarkGenerateComposite(b *testing.B) {
 		})
 	}
 }
+
+// benchSchemaNoProfileMatch is the worst case for the lexical fallback: every
+// reference column is named so that no profile form resolves it, which is what
+// sends each one down the path that compares against every table in scope.
+func benchSchemaNoProfileMatch(tables, columnsPer int) []model.Schema {
+	s := model.Schema{Name: "public", Tables: make([]model.Table, 0, tables)}
+
+	for i := range tables {
+		t := model.Table{
+			Schema:  "public",
+			Name:    fmt.Sprintf("entity_%d", i),
+			Columns: make([]model.Column, 0, columnsPer),
+			Stats:   model.TableStats{EstimatedRows: 10_000},
+		}
+		t.Columns = append(t.Columns, model.Column{
+			Name: "id", Type: "bigint", BaseType: "int8", Position: 1,
+		})
+		t.PrimaryKey = []string{"id"}
+
+		for c := 1; c < columnsPer; c++ {
+			t.Columns = append(t.Columns, model.Column{
+				Name:     fmt.Sprintf("zzq%d_ref%d", i, c),
+				Type:     "bigint",
+				BaseType: "int8",
+				Position: c + 1,
+			})
+		}
+		s.Tables = append(s.Tables, t)
+	}
+	return []model.Schema{s}
+}
+
+func BenchmarkGenerateNoProfileMatch(b *testing.B) {
+	for _, tables := range []int{100, 1_000, 5_000} {
+		schemas := benchSchemaNoProfileMatch(tables, 12)
+		opts := benchOptions()
+		b.Run(fmt.Sprintf("tables=%d/fallback", tables), func(b *testing.B) {
+			for b.Loop() {
+				infer.Generate(schemas, opts)
+			}
+		})
+	}
+}
