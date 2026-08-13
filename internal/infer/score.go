@@ -17,6 +17,12 @@ const (
 	weightCommentMention = 0.12
 	weightNotNull        = 0.05
 
+	// weightNameSimilarityMax is the ceiling for SigNameSimilarity, scaled by
+	// the measured similarity — see nameSimilarityWeight. It sits below
+	// weightNormalizedName even at the ceiling: lexical proximity carries no
+	// confirmed naming convention behind it, unlike a profile match.
+	weightNameSimilarityMax = 0.12
+
 	// A join in real code outranks any name signal: it is usage, not
 	// convention, and it is the only evidence that reaches relationships whose
 	// names bear no resemblance. Views outrank function bodies, which the
@@ -58,6 +64,15 @@ func arityWeight(n int) float64 {
 	return w
 }
 
+// nameSimilarityWeight scales SigNameSimilarity's weight linearly by the
+// measured similarity, capped at weightNameSimilarityMax. A fixed weight
+// would treat a borderline match at the generation cutoff the same as a near-
+// exact one, which arityWeight already establishes is the wrong shape for a
+// signal whose strength is a measured quantity rather than a fact.
+func nameSimilarityWeight(similarity float64) float64 {
+	return weightNameSimilarityMax * similarity
+}
+
 // DefaultMinScore is the cut below which a candidate never reaches validation.
 //
 // It is an estimate, not a measurement: the honest calibration needs the
@@ -69,6 +84,21 @@ const DefaultMinScore = 0.5
 // DefaultSmallTableRows is the size below which a target counts as a domain
 // table for the generic-name penalty.
 const DefaultSmallTableRows = 1000
+
+// DefaultMinNameSimilarity is the cut below which the lexical-similarity
+// fallback never raises a candidate at all — distinct from DefaultMinScore,
+// which cuts after a candidate already exists.
+//
+// Measured, not guessed, against the three corpus misses this fallback exists
+// for (docs/PGFATHOM.md): operador/operadorbasecalculo scores 0.552,
+// tptramite/tramitetipo scores 0.545, atorevogacao/ato scores 0.353. A value
+// above the lowest of the three would silently defeat the feature's own
+// motivating cases, so the default sits below all three with margin. It can
+// afford to be permissive: Generate already generates liberally and cuts
+// strictly (see its doc comment), and SigNameSimilarity's low weight means a
+// candidate this fallback raises still needs help from other signals to
+// survive DefaultMinScore.
+const DefaultMinNameSimilarity = 0.30
 
 // score combines the signal weights, saturating at both ends.
 //

@@ -10,6 +10,13 @@ type SignalKind string
 const (
 	SigExactName      SignalKind = "exact_name"
 	SigNormalizedName SignalKind = "normalized_name"
+
+	// SigNameSimilarity is a lexical match found by character-trigram
+	// similarity rather than by the naming profile's affix/plural forms. It
+	// only fires when the profile matched nothing at all, and it ranks below
+	// SigNormalizedName because string proximity carries no confirmed
+	// convention behind it.
+	SigNameSimilarity SignalKind = "name_similarity"
 )
 
 // Type evidence.
