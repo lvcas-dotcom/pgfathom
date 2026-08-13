@@ -114,9 +114,10 @@ func findTable(schemas []model.Schema, schema, name string) (model.Table, bool) 
 
 // missingPrimaryKeys reports a table with no primary key. When the catalog
 // already proves a UNIQUE NOT NULL constraint exists, promoting it is offered
-// as a zero-cost fix. Otherwise the suggestion stands without columns: naming
-// a candidate key requires reading data, which is internal/cli's job to
-// costure in via internal/validate, not this package's.
+// as a fix that needs no data probe — the catalog already did that work.
+// Otherwise the suggestion stands without columns: naming a candidate key
+// requires reading data, which is internal/cli's job to costure in via
+// internal/validate, not this package's.
 func missingPrimaryKeys(t model.Table) []model.Finding {
 	if t.HasPrimaryKey() {
 		return nil
@@ -130,7 +131,8 @@ func missingPrimaryKeys(t model.Table) []model.Finding {
 
 	if u, ok := t.PromotableUnique(); ok {
 		f.Detail = "no primary key: row identity is undefined, but an existing " +
-			"UNIQUE NOT NULL constraint can be promoted at no cost"
+			"UNIQUE NOT NULL constraint already proves one — promoting it needs " +
+			"no data probe, only a lock-light DDL sequence"
 		f.Suggestion = &model.Suggestion{
 			Kind:    model.SuggestPromoteUnique,
 			Columns: u.Columns,

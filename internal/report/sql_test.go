@@ -258,17 +258,31 @@ func missingKeyResult() *model.Result {
 	return r
 }
 
-func TestSuggestedKeysPromotesExistingUnique(t *testing.T) {
+// TestSuggestedKeysPromotesExistingUniqueViaThreeStepCommented pins the fix:
+// the constraint's own index cannot be reused by USING INDEX (it is already
+// tied to that constraint), so promotion builds a fresh index instead, and
+// the whole sequence stays commented like every other CONCURRENTLY path in
+// this file — it still scans the table, so it is lock-light, not free, and
+// not meant to run unreviewed.
+func TestSuggestedKeysPromotesExistingUniqueViaThreeStepCommented(t *testing.T) {
 	content := artifactByName(t, report.AuditArtifacts(missingKeyResult()), report.FileSuggestedKeys).Content
 
-	if !strings.Contains(content, `ADD PRIMARY KEY USING INDEX "cadastro_cpf_key"`) {
-		t.Errorf("promotable unique must be promoted by name:\n%s", content)
+	want := []string{
+		`CREATE UNIQUE INDEX CONCURRENTLY "ux_cadastro_cpf" ON "public"."cadastro" ("cpf");`,
+		`ADD PRIMARY KEY USING INDEX "ux_cadastro_cpf";`,
+		`DROP CONSTRAINT "cadastro_cpf_key";`,
 	}
-	// This statement scans nothing, so it runs live, not commented out.
+	for _, w := range want {
+		if !strings.Contains(content, w) {
+			t.Errorf("expected the three-step promotion to contain %q:\n%s", w, content)
+		}
+	}
+
 	for _, line := range strings.Split(content, "\n") {
-		if strings.Contains(line, `ADD PRIMARY KEY USING INDEX "cadastro_cpf_key"`) &&
-			strings.HasPrefix(strings.TrimSpace(line), "--") {
-			t.Errorf("promoting an existing unique is cheap and must not be commented out: %q", line)
+		trimmed := strings.TrimSpace(line)
+		touches := strings.Contains(line, "ux_cadastro_cpf") || strings.Contains(line, `DROP CONSTRAINT "cadastro_cpf_key"`)
+		if touches && !strings.HasPrefix(trimmed, "--") {
+			t.Errorf("promoting an existing unique still scans to build the new index, must stay commented: %q", line)
 		}
 	}
 }
@@ -285,8 +299,7 @@ func TestSuggestedKeysConfirmedCompositeUsesTwoStepCommented(t *testing.T) {
 	for _, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if (strings.Contains(line, "CREATE UNIQUE INDEX CONCURRENTLY") ||
-			strings.Contains(line, "ADD PRIMARY KEY USING INDEX")) && !strings.HasPrefix(trimmed, "--") &&
-			!strings.Contains(line, "cadastro_cpf_key") {
+			strings.Contains(line, "ADD PRIMARY KEY USING INDEX")) && !strings.HasPrefix(trimmed, "--") {
 			t.Errorf("CONCURRENTLY build-then-promote must stay commented: %q", line)
 		}
 	}

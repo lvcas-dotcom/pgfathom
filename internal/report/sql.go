@@ -416,16 +416,37 @@ func suggestedKeysFile(h header, schemas []model.Schema, findings []model.Findin
 	return b.String(), written
 }
 
-// writePromoteUnique emits the cheap path: the catalog already proves the
-// key, so promoting it takes a lock but scans nothing.
+// writePromoteUnique emits the path for a key an existing UNIQUE constraint
+// already proves: every column is NOT NULL and the constraint already
+// guarantees uniqueness, so no data probe is needed — only the promotion.
+//
+// The constraint's own index cannot be reused directly: PostgreSQL's
+// USING INDEX promotion only accepts an index with no constraint attached
+// yet, and this one is already owned by the UNIQUE constraint being
+// promoted. Building a fresh index CONCURRENTLY, promoting that one, then
+// dropping the old constraint is the same three-step discipline
+// writeConfirmedPrimaryKey and writeSyntheticPrimaryKey already use for
+// CREATE INDEX CONCURRENTLY in this file — it still scans the table to build
+// the new index, so this is lock-light, not free.
 func writePromoteUnique(b *strings.Builder, t model.Table, u model.UniqueConstraint) {
+	idx := truncateIdent("ux_" + t.Name + "_" + strings.Join(u.Columns, "_"))
+
 	fmt.Fprintf(b, "-- %s — promote UNIQUE %s (%s) to primary key\n",
 		t.Ref(), ident(u.Name), strings.Join(quotedIdents(u.Columns), ", "))
-	b.WriteString("-- The catalog already proves this: every column is NOT NULL and the\n")
-	b.WriteString("-- constraint already guarantees uniqueness. This takes a lock but scans\n")
-	b.WriteString("-- nothing — the index backing the constraint already exists.\n")
-	fmt.Fprintf(b, "ALTER TABLE %s\n", identTable(t.Schema, t.Name))
-	fmt.Fprintf(b, "    ADD PRIMARY KEY USING INDEX %s;\n\n", ident(u.Name))
+	b.WriteString("-- Every column is NOT NULL and the constraint already guarantees\n")
+	b.WriteString("-- uniqueness, so no data probe is needed. Its own index cannot be reused\n")
+	b.WriteString("-- directly — USING INDEX rejects one already tied to a constraint — so a\n")
+	b.WriteString("-- fresh index is built CONCURRENTLY first, promoted, and the old\n")
+	b.WriteString("-- constraint is dropped last.\n")
+	if idx.truncated {
+		fmt.Fprintf(b, "-- Name shortened to fit %d bytes; in full it would be %s.\n", maxIdentifierBytes, idx.full)
+	}
+	fmt.Fprintf(b, "-- CREATE UNIQUE INDEX CONCURRENTLY %s ON %s (%s);\n",
+		ident(idx.value), identTable(t.Schema, t.Name), strings.Join(quotedIdents(u.Columns), ", "))
+	fmt.Fprintf(b, "-- ALTER TABLE %s ADD PRIMARY KEY USING INDEX %s;\n",
+		identTable(t.Schema, t.Name), ident(idx.value))
+	fmt.Fprintf(b, "-- ALTER TABLE %s DROP CONSTRAINT %s;\n\n",
+		identTable(t.Schema, t.Name), ident(u.Name))
 }
 
 // writeConfirmedPrimaryKey emits the two-step path for a key the catalog

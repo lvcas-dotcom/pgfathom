@@ -46,10 +46,14 @@ func (t Table) Ref() string { return t.Schema + "." + t.Name }
 func (t Table) HasPrimaryKey() bool { return len(t.PrimaryKey) > 0 }
 
 // PromotableUnique returns the first UNIQUE constraint whose columns are all
-// NOT NULL — the shape PostgreSQL accepts for
-// ALTER TABLE ... ADD CONSTRAINT ... PRIMARY KEY USING INDEX <name> without
-// rewriting a row. Keeping the name is what makes that statement expressible
-// without guessing one. The second result is false when no such unique exists.
+// NOT NULL — the shape that already proves a primary key without reading a
+// row, because the catalog already guarantees uniqueness and non-null. It
+// does not mean the constraint's own index can be reused directly: that
+// index is already tied to this constraint, and PostgreSQL's USING INDEX
+// promotion only accepts one with no constraint attached yet. Keeping the
+// name is what lets a caller name the old constraint to drop once a fresh
+// index has taken its place. The second result is false when no such unique
+// exists.
 func (t Table) PromotableUnique() (UniqueConstraint, bool) {
 	for _, u := range t.Uniques {
 		if t.allNotNull(u.Columns) {

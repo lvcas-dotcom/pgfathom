@@ -192,9 +192,37 @@ func TestJsonbContainmentRecommendsGIN(t *testing.T) {
 	}
 }
 
-// TestSuggestedKeysArtifactPromotesLiveUnique proves the cheap promotion
-// statement is not just well-formed but actually runs against the database
-// that produced it.
+// commentedStatement finds the one commented line in content that contains
+// every one of want, strips the "-- " prefix and the trailing ";", and fails
+// the test if no line matches. Mirrors the parse check
+// TestSuggestedIndexesArtifactParsesUnderExplain already runs for a single
+// CREATE INDEX CONCURRENTLY line, generalized to pick one of several
+// candidate lines by content.
+func commentedStatement(t *testing.T, content string, want ...string) string {
+	t.Helper()
+
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimPrefix(strings.TrimSpace(line), "-- ")
+		matches := true
+		for _, w := range want {
+			if !strings.Contains(trimmed, w) {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return strings.TrimSuffix(trimmed, ";")
+		}
+	}
+	t.Fatalf("expected a commented line containing %v:\n%s", want, content)
+	return ""
+}
+
+// TestSuggestedKeysArtifactPromotesLiveUnique proves the three-step promotion
+// — build a fresh index CONCURRENTLY, promote it, drop the old UNIQUE
+// constraint — is not just well-formed but actually runs, in order, against
+// the database that produced it. CONCURRENTLY cannot run inside a
+// transaction, so each statement executes on its own, never concatenated.
 func TestSuggestedKeysArtifactPromotesLiveUnique(t *testing.T) {
 	dsn := testutil.Postgres(t, "missing_pk_promotable")
 	dir := t.TempDir()
@@ -202,14 +230,17 @@ func TestSuggestedKeysArtifactPromotesLiveUnique(t *testing.T) {
 	runCommand(t, "audit", "--dsn", dsn, "--out", dir)
 
 	content := readArtifact(t, dir, report.FileSuggestedKeys)
-	stmts := executable(content)
-	if stmts == "" {
-		t.Fatalf("expected a live promotion statement:\n%s", content)
+	steps := []string{
+		commentedStatement(t, content, "CREATE UNIQUE INDEX CONCURRENTLY"),
+		commentedStatement(t, content, "ADD PRIMARY KEY USING INDEX"),
+		commentedStatement(t, content, "DROP CONSTRAINT"),
 	}
 
 	conn := connect(t, dsn)
-	if _, err := conn.Exec(context.Background(), stmts); err != nil {
-		t.Fatalf("the promotion statement does not run as generated: %v\n--- statements ---\n%s", err, stmts)
+	for _, stmt := range steps {
+		if _, err := conn.Exec(context.Background(), stmt); err != nil {
+			t.Fatalf("promotion step does not run as generated: %v\n--- statement ---\n%s", err, stmt)
+		}
 	}
 
 	var hasPK bool
