@@ -5,6 +5,7 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -273,4 +274,43 @@ func TestManifestIsTheResultInSQLMode(t *testing.T) {
 	if !strings.Contains(stdout, "Review every file") {
 		t.Errorf("the manifest must repeat that the files need reading:\n%s", stdout)
 	}
+}
+
+// TestArtifactsAreNeverWrittenSilently covers the ordinary run: a report on
+// screen and --out for the files. The manifest used to appear only in SQL mode,
+// which meant this path left generated SQL on disk without saying where it went
+// or that it was meant to be read before being run.
+//
+// In JSON mode the same statement has to reach the operator without corrupting
+// the document, so it goes to stderr — the one place a parser is not reading.
+func TestArtifactsAreNeverWrittenSilently(t *testing.T) {
+	dsn := testutil.Postgres(t, "validation")
+
+	t.Run("terminal", func(t *testing.T) {
+		dir := t.TempDir()
+		stdout, _ := runCommand(t, "discover", "--full", "--dsn", dsn, "--out", dir)
+
+		if !strings.Contains(stdout, report.FileConfirmed) {
+			t.Errorf("the report must say what was written:\n%s", stdout)
+		}
+		if !strings.Contains(stdout, "Review every file") {
+			t.Errorf("the report must say the files need reading:\n%s", stdout)
+		}
+	})
+
+	t.Run("json", func(t *testing.T) {
+		dir := t.TempDir()
+		stdout, stderr := runCommand(t, "discover", "--full", "--format", "json", "--dsn", dsn, "--out", dir)
+
+		var doc any
+		if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+			t.Fatalf("stdout must stay a parseable document: %v", err)
+		}
+		if strings.Contains(stdout, "Review every file") {
+			t.Error("the manifest must not reach the document on stdout")
+		}
+		if !strings.Contains(stderr, report.FileConfirmed) {
+			t.Errorf("the manifest must still reach the operator on stderr:\n%s", stderr)
+		}
+	})
 }

@@ -308,8 +308,10 @@ func writeDetection(b *strings.Builder, v DiscoverView) {
 	}
 
 	if v.Detection.Empty() {
-		fmt.Fprintf(b, "  Nothing detected from %d tables and %d declared keys; the %s profile applies alone.\n\n",
-			v.Detection.Tables, v.Detection.DeclaredKeys, v.Result.Profile)
+		fmt.Fprintf(b, "  Nothing detected from %s and %s; the %s profile applies alone.\n\n",
+			plural(v.Detection.Tables, "table", "tables"),
+			plural(v.Detection.DeclaredKeys, "declared key", "declared keys"),
+			v.Result.Profile)
 		return
 	}
 
