@@ -44,20 +44,26 @@ pedir autenticação a quem só quer experimentar.
    $ scripts/release-notes.sh v0.1.2
    ```
 
-3. Reveja `docs/benchmark/recall.md`. Os números publicados no README saem
+3. Se o formato do relatório mudou nesta versão, regrave o exemplo do README.
+   Ele é execução real contra o schema de `docs/DEMO.md`, e o que o torna útil
+   é ser verdade — um exemplo que já foi verdade é pior que nenhum, porque
+   ninguém desconfia dele. O número de versão na gravação pode ficar para trás;
+   o formato não.
+
+4. Reveja `docs/benchmark/recall.md`. Os números publicados no README saem
    dali, e um release que os contradiga é pior do que um release sem eles.
-4. Rode `make release-check`. Ele valida a configuração e prova que o binário
+5. Rode `make release-check`. Ele valida a configuração e prova que o binário
    do caminho de release sabe a própria versão.
-5. Rode `goreleaser release --snapshot --clean` e abra `dist/`. É a última
+6. Rode `goreleaser release --snapshot --clean` e abra `dist/`. É a última
    chance de olhar o que vai ser publicado antes de existir uma tag.
-6. Crie e empurre a tag:
+7. Crie e empurre a tag:
 
    ```console
    $ git tag -a v0.1.0 -m 'v0.1.0'
    $ git push origin v0.1.0
    ```
 
-7. O workflow roda suíte, lint e build cruzado, e só então publica. Acompanhe
+8. O workflow roda suíte, lint e build cruzado, e só então publica. Acompanhe
    até o fim: uma falha depois da metade deixa artefatos parciais, e a resposta
    certa é corrigir e lançar a versão seguinte, nunca reescrever a tag.
 
