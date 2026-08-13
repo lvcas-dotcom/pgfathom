@@ -1,13 +1,19 @@
 version: 2
 
-# CGO_ENABLED=0 não é otimização, é requisito, e é o que torna estas quatro
-# plataformas baratas. `make crosscheck` prova a mesma coisa a cada mudança.
+# CGO_ENABLED=0 is a requirement rather than a tuning choice, and it is what
+# makes these four platforms cheap. `make crosscheck` proves the same thing on
+# every change.
 
 project_name: pgfathom
 
 before:
   hooks:
     - go mod tidy
+    # Completions are generated from the command, never written by hand:
+    # discover has twenty-one flags, and a hand-maintained file would drift on
+    # the first release that added one — with no way for the drift to be
+    # noticed. `go run` because this hook runs before a binary exists.
+    - sh -c 'mkdir -p completions && for sh in bash zsh fish; do go run ./cmd/pgfathom completion "$sh" > "completions/pgfathom.$sh"; done'
 
 builds:
   - id: pgfathom
@@ -17,10 +23,10 @@ builds:
       - CGO_ENABLED=0
     flags:
       - -trimpath
-    # Os três nomes abaixo têm que ser os mesmos que o Makefile injeta. São duas
-    # configurações concordando sobre três variáveis, que é o tipo de acordo que
-    # se rompe quando alguém renomeia uma delas — daí o job de CI que constrói
-    # por aqui e pergunta a versão ao binário.
+    # The three names below have to match the ones the Makefile injects. That
+    # is two configurations agreeing on three variables, which is the kind of
+    # agreement that breaks when somebody renames one of them — hence the CI job
+    # that builds through this path and asks the binary for its version.
     ldflags:
       - -s -w
       - -X github.com/lvcas-dotcom/pgfathom/internal/buildinfo.Version={{ .Version }}
@@ -40,26 +46,59 @@ archives:
     files:
       - LICENSE
       - README.md
+      - src: completions/*
+        dst: completions
 
-# Quem autoriza rodar isto contra produção confere o que baixou.
+# Whoever authorises running this against production verifies what they
+# downloaded.
 checksum:
   name_template: checksums.txt
 
 snapshot:
   version_template: "{{ incpatch .Version }}-snapshot"
 
+# Release notes come from the CHANGELOG, written by hand, passed through
+# --release-notes in the workflow. A list of commits says what was touched;
+# whoever opens a release wants to know what changed for them. See
+# scripts/release-notes.sh.
 changelog:
-  use: git
-  sort: asc
-  filters:
-    exclude:
-      - "^chore: arquiva"
-      - "^docs:"
-      - "^test:"
+  disable: true
 
-# distroless/static, e não scratch: a ferramenta abre TLS contra o servidor do
-# usuário, e a configuração recomendada verifica o certificado. Sem CA raiz
-# dentro da imagem isso falha com uma mensagem que parece defeito do servidor.
+# A distribution package is the shortest path for the target user: a DBA on a
+# Linux server, with no Go and no Homebrew. The paths below are not our choice,
+# and that is what makes them right — whoever installs a package expects to find
+# things where the system keeps them. No apt or yum repository: see
+# docs/RELEASING.md.
+nfpms:
+  - id: pgfathom
+    package_name: pgfathom
+    formats: [deb, rpm]
+    maintainer: lvcas-dotcom <https://github.com/lvcas-dotcom>
+    homepage: https://github.com/lvcas-dotcom/pgfathom
+    license: Apache-2.0
+    description: |-
+      Discovers and validates PostgreSQL relationships that exist in the data
+      but were never declared.
+      Strictly read-only: it never issues a statement that modifies the database
+      under analysis, and no value from your tables reaches its output.
+    section: database
+    bindir: /usr/bin
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/pgfathom/LICENSE
+      - src: README.md
+        dst: /usr/share/doc/pgfathom/README.md
+      - src: completions/pgfathom.bash
+        dst: /usr/share/bash-completion/completions/pgfathom
+      - src: completions/pgfathom.zsh
+        dst: /usr/share/zsh/site-functions/_pgfathom
+      - src: completions/pgfathom.fish
+        dst: /usr/share/fish/vendor_completions.d/pgfathom.fish
+
+# distroless/static rather than scratch: the tool opens TLS against the user's
+# server, and the recommended configuration verifies the certificate. With no
+# root CA inside the image that fails with a message that reads like a fault in
+# their server.
 dockers_v2:
   - images:
       - ghcr.io/lvcas-dotcom/pgfathom
@@ -81,14 +120,16 @@ dockers_v2:
         Discovers and validates PostgreSQL relationships that exist in the data
         but were never declared
 
-# Canal opcional, e só macOS: Homebrew no Linux não instala cask, então quem usa
-# brew em Linux fica com o binário do release, `go install` ou a imagem.
+# An optional channel, and macOS only: Homebrew on Linux does not install
+# casks, so brew users on Linux take the release binary, `go install` or the
+# image.
 #
-# A escrita no tap vai por deploy key, não por token de usuário: a chave vale
-# para um repositório e nada mais, não autentica como ninguém e não vence. O
-# workflow grava a chave num arquivo e passa o caminho; sem ela, `skip_upload`
-# fica verdadeiro e o release sai completo com um canal a menos, em vez de
-# falhar no último passo depois de já ter publicado binário.
+# Writing to the tap goes through a deploy key rather than a user token: the key
+# is good for one repository and nothing else, authenticates as nobody, and does
+# not expire. The workflow writes the key to a file and passes the path; without
+# it, `skip_upload` becomes true and the release goes out complete with one
+# channel missing, rather than failing at the last step after binaries are
+# already published.
 homebrew_casks:
   - name: pgfathom
     skip_upload: '{{ if .Env.HOMEBREW_TAP_KEY_PATH }}false{{ else }}true{{ end }}'
@@ -100,32 +141,34 @@ homebrew_casks:
         private_key: "{{ .Env.HOMEBREW_TAP_KEY_PATH }}"
     homepage: https://github.com/lvcas-dotcom/pgfathom
     description: Discovers and validates PostgreSQL relationships that exist in the data but were never declared
-    # Os binários não são assinados, e o macOS recusa binário baixado em
-    # quarentena com uma mensagem sobre desenvolvedor não verificado. Sem este
-    # hook o cask instala e não roda. Removê-lo contorna uma verificação do
-    # sistema, e é por isso que o cask diz isso em voz alta, aqui e no caveat: a
-    # solução de raiz é assinar e notarizar, que exige conta de desenvolvedor
-    # Apple e ainda não existe.
+    # The binaries are not signed, and macOS refuses a quarantined download
+    # with a message about an unverified developer. Without this hook the cask
+    # installs and does not run. Removing it bypasses a system check, which is
+    # why the cask says so out loud, here and in the caveat: the real fix is
+    # signing and notarising, which needs an Apple developer account and does
+    # not exist yet.
     hooks:
       post:
         install: |
           if OS.mac?
             system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/pgfathom"]
           end
-    # Uma linha só, e não é preferência de estilo: o goreleaser envolve cada
-    # linha deste campo em aspas dentro de um `caveats do ... end`, e um bloco
-    # Ruby devolve apenas a última expressão. Quebrado em quatro linhas, o
-    # usuário lê a última frase e nada do aviso — que é justamente a parte que
-    # não pode desaparecer.
+    # One line, and not as a style preference: goreleaser wraps each line of
+    # this field in quotes inside a `caveats do ... end`, and a Ruby block
+    # returns only its last expression. Broken across four lines, the user reads
+    # the final sentence and none of the warning — which is precisely the part
+    # that cannot disappear.
     caveats: "The binaries are not signed or notarised, so this cask clears the macOS quarantine attribute on install. That bypasses a Gatekeeper check, and you should know that it does. Verify what you got against the checksums published with the release."
 
 release:
   prerelease: auto
+  # Appended to every published release, so it is read by users rather than by
+  # contributors.
   footer: |
-    ## Verificação
+    ## Verifying what you downloaded
 
-    Os artefatos não são assinados. O que existe é `checksums.txt`, publicado
-    junto: confira o binário baixado contra ele antes de executar.
+    These artifacts are not signed. What exists is `checksums.txt`, published
+    alongside them: check your download against it before running it.
 
-    Recall medido no corpus público em `docs/benchmark/recall.md`, com o que
-    cada número mede e o que ele não mede.
+    Recall measured against the public corpus is in `docs/benchmark/recall.md`,
+    including what each number measures and what it does not.

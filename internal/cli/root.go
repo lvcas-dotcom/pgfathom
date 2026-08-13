@@ -59,7 +59,7 @@ output, logs or generated files.`,
 			default:
 				return UsageError(fmt.Errorf("invalid --color %q: want auto, always or never", opts.color))
 			}
-			streams.color = resolveColor(mode, os.Stdout)
+			streams.color = resolveEmphasis(mode, os.Stdout)
 
 			level, err := parseLogLevel(opts.logLevel)
 			if err != nil {
@@ -74,8 +74,10 @@ output, logs or generated files.`,
 		},
 
 		// Running a tool with no arguments to find out what it does is not an
-		// error.
+		// error. It is also the only moment where a logo costs nothing: nobody
+		// pipes the help screen, and whoever is here is meeting the tool.
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			Banner(streams.Err, streams.Emphasis(), "relationships your database has but never declared")
 			return cmd.Help()
 		},
 	}
@@ -96,6 +98,7 @@ output, logs or generated files.`,
 	root.AddCommand(newVersionCommand(streams))
 	root.AddCommand(newAuditCommand(streams))
 	root.AddCommand(newDiscoverCommand(streams))
+	root.AddCommand(newSetupCommand(streams, root))
 
 	return root, parsed
 }

@@ -7,21 +7,13 @@ A definir - criado ao arquivar alteração bootstrap-core-model. Atualize o Purp
 
 O projeto SHALL produzir um binário chamado `pgfathom`, sem dependência de runtime externo e sem cgo, com subcomandos.
 
-`pgfathom` sem argumento SHALL exibir a ajuda e sair com código zero.
+`pgfathom` sem argumento SHALL exibir a ajuda e sair com código zero. Um guia interativo MUST NOT tomar o lugar desse comportamento: quem usa o comando em script conta com ele, e um guia que se abre sozinho é surpresa em ambiente que não tem quem responda.
 
 Os subcomandos que produzem resultado SHALL aceitar `--format` com os valores `table`, `json` e `sql`, e `--out` apontando um diretório de artefatos. `--format sql` SHALL exigir `--out`, e sua ausência SHALL ser erro de uso.
 
 `--out` SHALL ser aceito junto de qualquer formato: quando presente, os artefatos são escritos e o relatório do formato escolhido continua saindo. Formato desconhecido SHALL ser erro de uso, nunca degradação silenciosa para um padrão.
 
 SQL não sai em stdout porque um formato que cabe num pipe convida ao pipe, e o cabeçalho de revisão obrigatória vira decoração que ninguém lê porque ninguém abriu o arquivo.
-
-Os subcomandos que leem catálogo SHALL aceitar `--schema` com a lista explícita de schemas, `--all-schemas` para resolver o escopo a partir do catálogo, e `--exclude-schema` com padrões glob de schemas a remover do escopo.
-
-`--schema` e `--all-schemas` SHALL ser mutuamente exclusivas, e fornecê-las juntas SHALL ser erro de uso. Nenhuma precedência entre elas é aceitável: qualquer que fosse, produziria uma linha de comando cujo escopo real não é o que ela aparenta pedir.
-
-A detecção de que `--schema` foi fornecida SHALL usar o estado de alteração da flag, e MUST NOT ser inferida da comparação com o valor padrão — `--schema public --all-schemas` é exatamente o caso ambíguo que a exclusividade existe para recusar.
-
-Escopo de schema vazio SHALL ser erro de uso.
 
 #### Scenario: Versão
 
@@ -46,27 +38,7 @@ Escopo de schema vazio SHALL ser erro de uso.
 #### Scenario: `--out` acompanha os outros formatos
 
 - **WHEN** um comando é executado com `--format table` e `--out`
-- **THEN** os artefatos são escritos no diretório e o relatório em tabela sai normalmente em stdout
-
-#### Scenario: Formato desconhecido não degrada
-
-- **WHEN** um comando é executado com um valor de `--format` que não existe
-- **THEN** a execução falha com erro de uso, sem cair para nenhum formato padrão
-
-#### Scenario: `--schema` junto de `--all-schemas` é erro de uso
-
-- **WHEN** um comando é executado com `--schema` e `--all-schemas` ao mesmo tempo
-- **THEN** a execução falha com código 2 e a mensagem cita as duas flags como mutuamente exclusivas
-
-#### Scenario: `--schema public --all-schemas` também falha
-
-- **WHEN** um comando é executado com `--schema` recebendo exatamente o valor padrão e `--all-schemas` junto
-- **THEN** a execução falha com código 2, porque a flag foi fornecida ainda que o valor coincida com o padrão
-
-#### Scenario: Exclusão que esvazia o escopo é erro de uso
-
-- **WHEN** `--exclude-schema` remove todos os schemas que entrariam no escopo
-- **THEN** a execução falha com código 2 e a mensagem indica que a exclusão esvaziou o escopo
+- **THEN** a tabela sai em stdout e os artefatos são escritos no diretório
 
 ### Requirement: Separação entre resultado e diagnóstico
 
@@ -177,4 +149,73 @@ Um número publicado sobre a ferramenta só é reproduzível por terceiros se me
 
 - **WHEN** um estágio é desligado por opção
 - **THEN** ele não aparece entre os tempos, em vez de aparecer com duração zero
+
+### Requirement: A execução relata progresso a quem a chama
+
+A unidade de execução SHALL relatar, para quem a chamou, o estágio que começou. Na validação, SHALL relatar também quantos candidatos de quantos já terminaram.
+
+O relato SHALL ser uma função recebida por opção, e a unidade MUST NOT escrever progresso em stream algum por conta própria. Quem executa a mesma unidade para medir — o harness de benchmark — precisa contar sem que nada seja desenhado.
+
+Estágio sem denominador conhecido antes de terminar SHALL relatar apenas que começou. Progresso com denominador inventado afirma saber quanto falta.
+
+#### Scenario: Cada estágio anuncia o início
+
+- **WHEN** uma execução atravessa os estágios
+- **THEN** quem chamou recebe um relato por estágio, na ordem de execução
+
+#### Scenario: A validação relata contagem
+
+- **WHEN** a validação atravessa os candidatos
+- **THEN** os relatos trazem quantos terminaram e quantos são no total
+
+#### Scenario: Nada é escrito pela unidade
+
+- **WHEN** a unidade é executada sem função de progresso
+- **THEN** nenhum byte é escrito em stream algum por causa de progresso
+
+### Requirement: O progresso é diagnóstico, e só aparece em terminal interativo
+
+O comando SHALL exibir o progresso em stderr, nunca em stdout.
+
+A exibição SHALL ocorrer somente quando stderr for terminal interativo, e SHALL ser suprimida quando `NO_COLOR` estiver definido ou o terminal for `dumb`. A decisão SHALL ser tomada uma vez, na fronteira do processo, e passada adiante como valor.
+
+Progresso em stdout corromperia o consumo programático. Progresso num destino que não é terminal encheria log e arquivo de linhas que existiam para ser sobrescritas.
+
+`NO_COLOR` desliga o progresso apesar de a linha não ser cor: quem define a variável está pedindo um stream sem sequências de escape, e reescrever linha é sequência de escape.
+
+#### Scenario: Pipe não recebe progresso
+
+- **WHEN** stderr é redirecionado para arquivo ou canalizado
+- **THEN** nenhuma linha de progresso é escrita
+
+#### Scenario: `NO_COLOR` suprime
+
+- **WHEN** `NO_COLOR` está definido e stderr é terminal
+- **THEN** nenhuma linha de progresso é escrita
+
+#### Scenario: Aviso não é atropelado
+
+- **WHEN** um estágio emite aviso durante a execução com progresso visível
+- **THEN** o aviso aparece em linha própria, sem resto da linha de progresso
+
+### Requirement: A marca é diagnóstica, e só aparece a quem está chegando
+
+A marca em ASCII SHALL ser escrita em stderr, nunca em stdout, e SHALL aparecer apenas quando o destino for um terminal interativo.
+
+Ela SHALL aparecer em exatamente dois momentos: o binário invocado sem argumento, e a abertura do guia interativo. Nenhum comando que produz resultado — `discover`, `audit`, `version` — SHALL imprimi-la.
+
+#### Scenario: Marca não contamina resultado
+
+- **WHEN** qualquer subcomando tem sua saída canalizada
+- **THEN** nenhum byte da marca aparece em stdout
+
+#### Scenario: Sem terminal, sem marca
+
+- **WHEN** o binário é invocado sem argumento com stderr redirecionado para arquivo
+- **THEN** o arquivo contém a ajuda e nenhum byte da marca
+
+#### Scenario: Execução repetida não paga o custo
+
+- **WHEN** `discover` roda em terminal interativo
+- **THEN** a marca não é impressa
 

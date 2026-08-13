@@ -53,3 +53,48 @@ func TestSkippedStageIsAbsentNotZero(t *testing.T) {
 		}
 	}
 }
+
+// TestProgressCoversTheStagesInOrder pins what the drawn line depends on: every
+// stage that runs announces itself, and validation is the only one that claims
+// a denominator — the others cannot know one before they finish, and a stage
+// that implies it does is lying with two decimal places.
+func TestProgressCoversTheStagesInOrder(t *testing.T) {
+	var seen []Progress
+	opts := Options{Progress: func(p Progress) { seen = append(seen, p) }}
+
+	// The stages are announced by Run, so this exercises the reporting contract
+	// directly rather than the pipeline: no database is involved.
+	for _, s := range []Stage{StageCatalog, StageDetection, StageEvidence, StageGeneration, StagePrefilter} {
+		opts.begin(s)
+	}
+	opts.begin(StageValidation)
+	opts.progress(Progress{Stage: StageValidation, Done: 1, Total: 4})
+
+	if len(seen) != 7 {
+		t.Fatalf("got %d reports, want 7", len(seen))
+	}
+	for i, want := range []Stage{
+		StageCatalog, StageDetection, StageEvidence,
+		StageGeneration, StagePrefilter, StageValidation, StageValidation,
+	} {
+		if seen[i].Stage != want {
+			t.Errorf("report %d is %q, want %q", i, seen[i].Stage, want)
+		}
+	}
+	for _, p := range seen[:6] {
+		if p.Total != 0 {
+			t.Errorf("stage %q claims a denominator of %d before it can know one", p.Stage, p.Total)
+		}
+	}
+	if seen[6].Done != 1 || seen[6].Total != 4 {
+		t.Errorf("validation reported %d/%d, want 1/4", seen[6].Done, seen[6].Total)
+	}
+}
+
+// TestNoProgressFunctionWritesNothing is the property the benchmark depends on:
+// it runs the same unit to measure it, and wants nothing drawn.
+func TestNoProgressFunctionWritesNothing(t *testing.T) {
+	opts := Options{}
+	opts.begin(StageCatalog)
+	opts.progress(Progress{Stage: StageValidation, Done: 1, Total: 2})
+}

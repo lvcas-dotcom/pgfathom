@@ -1,0 +1,82 @@
+name: Bug report
+description: Something the tool did that it should not have
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: if this is a way to break read-only, to get a row value
+        into the output, or to get the tool to execute generated SQL, please
+        report it privately instead — see
+        [SECURITY.md](https://github.com/lvcas-dotcom/pgfathom/blob/main/SECURITY.md).
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What the tool did, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: The command you ran
+      description: >-
+        With the connection string redacted. If you used `pgfathom setup`, the
+        command it printed is the one to paste here.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: coverage
+    attributes:
+      label: The coverage block
+      description: >-
+        The part of the report that says what was and was not analysed. It is
+        where most diagnoses start — a surprising result is very often a scope
+        that did not include the tables you had in mind.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: pgfathom version
+      description: The full output of `pgfathom version`.
+      placeholder: pgfathom 0.1.1, commit f587521
+    validations:
+      required: true
+
+  - type: input
+    id: postgres
+    attributes:
+      label: PostgreSQL version
+      description: "`SELECT version();`, or the first line of it."
+    validations:
+      required: true
+
+  - type: textarea
+    id: schema
+    attributes:
+      label: The shape of the schema
+      description: >-
+        Roughly how many tables, whether they declare foreign keys, and the
+        naming convention if there is one (`user_id`, `id_user`, `cd_usuario`).
+        **Names and counts only — please do not paste data.** A minimal DDL that
+        reproduces it is the most useful thing you can attach.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Validation mode
+      options:
+        - Sampled (the default)
+        - Full (--full)
+        - Not applicable
+    validations:
+      required: true

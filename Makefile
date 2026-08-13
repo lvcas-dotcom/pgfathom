@@ -9,82 +9,89 @@ LDFLAGS := -s -w \
 	-X '$(PKG)/internal/buildinfo.Commit=$(COMMIT)' \
 	-X '$(PKG)/internal/buildinfo.Date=$(DATE)'
 
-# CGO_ENABLED=0 não é otimização, é requisito: cross-compile precisa ser trivial.
+# CGO_ENABLED=0 is a requirement rather than a tuning choice: cross-compiling
+# has to stay trivial.
 export CGO_ENABLED := 0
 
 .PHONY: build test test-integration corpus benchmark lint fmt cover crosscheck release-check image-check clean help
 
-## build: compila o binário em ./bin
+## build: compile the binary into ./bin
 build:
 	@mkdir -p bin
 	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/$(BINARY) ./cmd/$(BINARY)
 
-## test: testes unitários, sem Docker e sem rede
+## test: unit suite; no Docker, no network
 test:
 	go test ./...
 
-## test-integration: testes que sobem PostgreSQL real via testcontainers
+## test-integration: starts real PostgreSQL through testcontainers
 test-integration:
 	go test -tags=integration -timeout=20m ./...
 
-## corpus: baixa e confere os schemas do benchmark (única etapa que usa rede)
+## corpus: fetch and verify the benchmark schemas (the only step that uses the network)
 corpus:
 	go test -tags=benchmark -timeout=15m -v -run TestFetchCorpus ./internal/bench/...
 
-## benchmark: mede a taxa de recuperação no corpus e escreve docs/benchmark
+## benchmark: measure recall against the corpus and write docs/benchmark
 benchmark:
 	go test -tags=benchmark -timeout=90m -v -run TestCorpus ./internal/bench/...
 
-## lint: golangci-lint em todas as etiquetas de build
+## lint: golangci-lint under every build tag
 lint:
 	golangci-lint run
 	golangci-lint run --build-tags integration
 	golangci-lint run --build-tags benchmark
 
-## fmt: formata e organiza imports
+## fmt: format and vet
 fmt:
 	go fmt ./...
 	go vet ./...
 
-## cover: cobertura de testes unitários
+## cover: unit test coverage
 cover:
 	go test -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out | tail -1
 
-## crosscheck: prova que o build cruzado funciona sem cgo
+## crosscheck: prove cross-compilation works without cgo
 crosscheck:
 	@for target in linux/amd64 linux/arm64 darwin/arm64 windows/amd64; do \
 		os=$${target%/*}; arch=$${target#*/}; \
 		echo "  $$os/$$arch"; \
 		GOOS=$$os GOARCH=$$arch go build -trimpath -o /dev/null ./cmd/$(BINARY) || exit 1; \
 	done
-	@echo "build cruzado ok"
+	@echo "cross-compile ok"
 
-## release-check: prova que o caminho de release produz binário carimbado
+## release-check: prove the release path produces a correctly stamped binary
 #
-# O carimbo vem de duas configurações que precisam concordar sobre três nomes
-# de variável — esta aqui e a do goreleaser. A comparação é por igualdade, e não
-# por procurar "unknown", porque o binário nunca diz "unknown": buildinfo cai
-# para o que o toolchain gravou e responde uma pseudo-versão do commit. É um
-# bom padrão para `go install` e é exatamente o que esconderia um ldflag
-# quebrado, publicando binário cuja versão não é a da tag.
+# The stamp comes from two configurations that have to agree on three variable
+# names — this one and goreleaser's. The comparison is for equality rather than
+# for the string "unknown", because the binary never says "unknown": buildinfo
+# falls back to what the toolchain recorded and answers a pseudo-version of the
+# commit. That is a good default for `go install`, and it is exactly what would
+# hide a broken ldflag and publish a binary whose version is not the tag's.
 release-check:
 	goreleaser check
 	goreleaser build --snapshot --clean --single-target --output dist/pgfathom-check
 	@want=$$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' dist/metadata.json); \
 	got=$$(./dist/pgfathom-check version | head -1 | awk '{print $$2}'); \
 	if [ "$$got" != "$$want" ]; then \
-		echo "FALHA: o release carimbaria $$want e o binário responde $$got"; \
+		echo "FAILED: the release would stamp $$want and the binary answers $$got"; \
 		exit 1; \
 	fi; \
-	echo "carimbo ok: $$got"
+	echo "stamp ok: $$got"
+# The newest CHANGELOG entry has to come out whole. Extraction breaks silently
+# when the heading changes shape, and the release is too late to find that out.
+	@v=$$(sed -n 's/^## \[\([0-9][^]]*\)\].*/\1/p' CHANGELOG.md | head -1); \
+	./scripts/release-notes.sh "v$$v" > /dev/null; \
+	echo "release notes ok: $$v"
 
-## image-check: prova que a imagem constrói para as duas plataformas
+## image-check: prove the image builds for both platforms
 #
-# Reproduz o contexto que o goreleaser monta — um binário por plataforma, em
-# subdiretórios — e constrói sem publicar. É a verificação que faltava: o
-# Dockerfile foi escrito para o formato de contexto antigo, plano, e o erro só
-# apareceu no primeiro release, no passo depois de tudo ter passado.
+# Reproduces the context goreleaser assembles — one binary per platform, in
+# subdirectories — and builds without publishing. This is the check that was
+# missing: the Dockerfile was written for the old flat context format, and the
+# error surfaced only during the first release, in the step after everything
+# else had passed.
 image-check:
 	@ctx=$$(mktemp -d); \
 	trap 'rm -rf "$$ctx"' EXIT; \
@@ -94,12 +101,12 @@ image-check:
 	done; \
 	cp Dockerfile "$$ctx/"; \
 	docker buildx build --platform linux/amd64,linux/arm64 --output=type=cacheonly "$$ctx"
-	@echo "imagem ok"
+	@echo "image ok"
 
-## clean: remove artefatos de build
+## clean: remove build artifacts
 clean:
 	rm -rf bin dist coverage.out
 
-## help: lista os alvos
+## help: list the targets
 help:
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/## //'

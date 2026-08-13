@@ -33,20 +33,31 @@ pedir autenticação a quem só quer experimentar.
 1. Confirme que a `main` está verde, incluindo a suíte de integração — o
    workflow de release não a executa, porque ela precisa de Docker no runner e
    o que ela protege já foi protegido no merge.
-2. Reveja `docs/benchmark/recall.md`. Os números publicados no README saem
+2. **Escreva a seção da versão no `CHANGELOG.md`**, com a data. É ela que vira
+   a nota de release: o workflow a extrai com `scripts/release-notes.sh` e a
+   passa ao goreleaser. Sem a seção, o release falha antes de publicar — de
+   propósito, porque nota de release não se corrige depois de publicada.
+
+   Confira o que vai sair antes de marcar a tag:
+
+   ```console
+   $ scripts/release-notes.sh v0.1.2
+   ```
+
+3. Reveja `docs/benchmark/recall.md`. Os números publicados no README saem
    dali, e um release que os contradiga é pior do que um release sem eles.
-3. Rode `make release-check`. Ele valida a configuração e prova que o binário
+4. Rode `make release-check`. Ele valida a configuração e prova que o binário
    do caminho de release sabe a própria versão.
-4. Rode `goreleaser release --snapshot --clean` e abra `dist/`. É a última
+5. Rode `goreleaser release --snapshot --clean` e abra `dist/`. É a última
    chance de olhar o que vai ser publicado antes de existir uma tag.
-5. Crie e empurre a tag:
+6. Crie e empurre a tag:
 
    ```console
    $ git tag -a v0.1.0 -m 'v0.1.0'
    $ git push origin v0.1.0
    ```
 
-6. O workflow roda suíte, lint e build cruzado, e só então publica. Acompanhe
+7. O workflow roda suíte, lint e build cruzado, e só então publica. Acompanhe
    até o fim: uma falha depois da metade deixa artefatos parciais, e a resposta
    certa é corrigir e lançar a versão seguinte, nunca reescrever a tag.
 
@@ -68,6 +79,12 @@ quem os consuma.
 o mesmo binário que vai nos arquivos, o que é o ponto: compilar de novo
 produziria um artefato diferente do que foi verificado.
 
+**Não há repositório apt nem yum.** A instalação por `.deb` ou `.rpm` é de arquivo
+baixado, então não atualiza sozinha. Hospedar repositório exigiria servidor e
+chave de assinatura sob custódia, que é compromisso de outra ordem. Também não
+há página de manual: ela custaria uma dependência só para converter markdown em
+roff, e o `--help` cobre o mesmo terreno.
+
 **O cask limpa a quarentena do macOS na instalação.** Binário baixado e não
 assinado é recusado na primeira execução com uma mensagem sobre desenvolvedor
 não verificado, e sem isso o cask instalaria sem funcionar. Remover o atributo
@@ -80,6 +97,7 @@ notarizar, que exige conta de desenvolvedor Apple.
 | Canal | O quê |
 |---|---|
 | GitHub Releases | binário para linux, macOS e Windows, em amd64 e arm64, mais `checksums.txt` |
+| `.deb` e `.rpm` | no release, para amd64 e arm64, com autocompletar de shell |
 | `ghcr.io` | imagem multiplataforma sobre `distroless/static`, com certificados raiz e usuário sem privilégio |
 | Homebrew | cask no tap, só macOS, quando a deploy key existe |
 | `go install` | sempre disponível, e carimba a versão pelo que o toolchain grava |

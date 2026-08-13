@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -67,6 +68,12 @@ type Options struct {
 	BrokenThreshold float64
 	RejectThreshold float64
 	MaxNullFraction float64
+
+	// OnValidated is called with the running count as each candidate finishes.
+	// It fires from inside the concurrency group, so the count is atomic and
+	// whoever draws from it has to serialize — a progress line that scrambles
+	// itself reads as a defect.
+	OnValidated func(done int)
 }
 
 func (o Options) targetRows() int64 {
@@ -127,6 +134,8 @@ func Run(ctx context.Context, pool Beginner, schemas []model.Schema, candidates 
 	rows := model.RowEstimates(schemas)
 	timedOut := make([]bool, len(candidates))
 
+	var done atomic.Int64
+
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(opts.concurrency())
 
@@ -137,6 +146,9 @@ func Run(ctx context.Context, pool Beginner, schemas []model.Schema, candidates 
 				return err
 			}
 			res.Candidates[i], timedOut[i] = out, timeout
+			if opts.OnValidated != nil {
+				opts.OnValidated(int(done.Add(1)))
+			}
 			return nil
 		})
 	}

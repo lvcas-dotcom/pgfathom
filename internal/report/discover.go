@@ -124,9 +124,12 @@ func writeGroups(b *strings.Builder, e Emphasis, r *model.Result) {
 		group := r.CandidatesByVerdict(verdict)
 
 		heading := fmt.Sprintf("%s  (%d)", verdictTitles[verdict], len(group))
-		if verdict == model.VerdictBroken && len(group) > 0 {
+		switch {
+		case verdict == model.VerdictBroken && len(group) > 0:
 			heading = e.Alert(heading)
-		} else {
+		case verdict == model.VerdictConfirmed && len(group) > 0:
+			heading = e.Confirm(heading)
+		default:
 			heading = e.Bold(heading)
 		}
 		fmt.Fprintf(b, "  %s\n", heading)
@@ -305,8 +308,10 @@ func writeDetection(b *strings.Builder, v DiscoverView) {
 	}
 
 	if v.Detection.Empty() {
-		fmt.Fprintf(b, "  Nothing detected from %d tables and %d declared keys; the %s profile applies alone.\n\n",
-			v.Detection.Tables, v.Detection.DeclaredKeys, v.Result.Profile)
+		fmt.Fprintf(b, "  Nothing detected from %s and %s; the %s profile applies alone.\n\n",
+			plural(v.Detection.Tables, "table", "tables"),
+			plural(v.Detection.DeclaredKeys, "declared key", "declared keys"),
+			v.Result.Profile)
 		return
 	}
 

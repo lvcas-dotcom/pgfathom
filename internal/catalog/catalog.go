@@ -76,6 +76,32 @@ type Scope struct {
 	Total int
 }
 
+// SchemaSummary is a schema the role can open, and how much is in it.
+type SchemaSummary struct {
+	Name   string
+	Tables int
+}
+
+// SummarizeSchemas lists the visible schemas with their table counts, ordered
+// by size. It is what lets a caller offer a choice instead of a default.
+func SummarizeSchemas(ctx context.Context, pool Querier) ([]SchemaSummary, error) {
+	rows, err := pool.Query(ctx, querySchemaSummary)
+	if err != nil {
+		return nil, fmt.Errorf("listing schemas: %w", err)
+	}
+	defer rows.Close()
+
+	var out []SchemaSummary
+	for rows.Next() {
+		var s SchemaSummary
+		if err := rows.Scan(&s.Name, &s.Tables); err != nil {
+			return nil, fmt.Errorf("scanning schema: %w", err)
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 // ResolveScope reads the visible schemas and resolves the scope against them.
 func ResolveScope(ctx context.Context, pool Querier, opts ScopeOptions) (*Scope, error) {
 	visible, err := readSchemas(ctx, pool)

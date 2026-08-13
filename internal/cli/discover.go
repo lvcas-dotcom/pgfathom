@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -202,7 +203,13 @@ func runDiscover(ctx context.Context, streams *Streams, opts *discoverOptions) e
 		return UsageError(err)
 	}
 
-	warn := func(msg string) { _, _ = fmt.Fprintln(streams.Err, "warning: "+msg) }
+	// A warning clears the progress line before writing: the tail of a longer
+	// line left at the end of a warning reads as a defect.
+	progress := streams.Progress()
+	warn := func(msg string) {
+		progress.Clear()
+		_, _ = fmt.Fprintln(streams.Err, "warning: "+msg)
+	}
 
 	pool, scope, err := connect(ctx, opts.connection, warn)
 	if err != nil {
@@ -227,8 +234,10 @@ func runDiscover(ctx context.Context, streams *Streams, opts *discoverOptions) e
 			Timeout:     opts.connection.statementTimeout,
 			Concurrency: opts.connection.concurrency,
 		},
-		Warn: func(_ discovery.Stage, msg string) { warn(msg) },
+		Warn:     func(_ discovery.Stage, msg string) { warn(msg) },
+		Progress: progress.Report,
 	})
+	progress.Clear()
 	if err != nil {
 		return err
 	}
@@ -242,8 +251,9 @@ func runDiscover(ctx context.Context, streams *Streams, opts *discoverOptions) e
 		result.Discarded = run.Discarded
 	}
 
+	var artifacts []report.Artifact
 	if opts.out != "" {
-		artifacts := report.DiscoverArtifacts(result)
+		artifacts = report.DiscoverArtifacts(result)
 		if err := report.WriteArtifacts(opts.out, artifacts); err != nil {
 			return err
 		}
@@ -253,18 +263,41 @@ func runDiscover(ctx context.Context, streams *Streams, opts *discoverOptions) e
 	}
 
 	if opts.format == formatJSON {
-		return report.JSON(streams.Out, result)
+		if err := report.JSON(streams.Out, result); err != nil {
+			return err
+		}
+		// Here the manifest is diagnostic. Stdout carries a JSON document for
+		// something else to parse, and a table in the middle of it corrupts the
+		// consumer the format exists for — but writing files and saying nothing
+		// would leave SQL on disk that nobody was told to review.
+		return writeManifest(streams.Err, opts.out, artifacts)
 	}
 
-	return report.Discover(streams.Out, report.DiscoverView{
+	if err := report.Discover(streams.Out, report.DiscoverView{
 		Result:          result,
 		Discarded:       run.Discarded,
 		MinScore:        opts.minScore,
 		ShowDiscarded:   opts.includeRejected,
 		ValidationStage: validationStage(opts.full, opts.sampleRows, result.Sampled()),
 		Detection:       run.Detection,
-		Emphasis:        report.Emphasis(streams.Color()),
-	})
+		Emphasis:        streams.Emphasis(),
+	}); err != nil {
+		return err
+	}
+
+	// Artifacts used to be written silently unless the output format was SQL,
+	// which meant the ordinary run — a report on screen and `--out` for the
+	// files — left generated SQL on disk with no mention of where it went or
+	// that it was meant to be read first.
+	return writeManifest(streams.Out, opts.out, artifacts)
+}
+
+// writeManifest lists what was written, and says nothing when nothing was.
+func writeManifest(w io.Writer, dir string, artifacts []report.Artifact) error {
+	if len(artifacts) == 0 {
+		return nil
+	}
+	return report.Manifest(w, dir, artifacts)
 }
 
 // connect resolves credentials, opens the pool, resolves the schema scope and
