@@ -610,6 +610,10 @@ about being untranslated rather than absent.
 Yes, please. [CONTRIBUTING.md](CONTRIBUTING.md) has how to build it, how to run each
 part of the test suite, and how behaviour gets proposed before it is built.
 
+New to the codebase and want the map before the process? [`docs/guide/`](docs/guide/README.md)
+walks through the architecture, the pipeline and the safety rules a layer at a time, each
+page linking back to [`docs/PGFATHOM.md`](docs/PGFATHOM.md) and the specs for full detail.
+
 The three most valuable things you can send:
 
 - **A verdict that is wrong.** A confirmed false positive is treated as a blocking
