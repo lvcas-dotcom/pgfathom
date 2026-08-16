@@ -518,6 +518,20 @@ missed relationship costs you a finding. A wrong one confirmed costs you the too
 
 `pgfathom` is not new science, and says so.
 
+The most obvious alternative doesn't come from a literature search: read the ORM. Rails'
+`schema.rb`, Django's `models.py`, a JPA `@ManyToOne` — when the application source is
+available, it states the relationship the author intended, in one place, without inference.
+Nothing here claims to do that job better, and if the source is in reach, start there.
+
+What the source doesn't tell you is whether that intent ever became a constraint the
+database enforces, and whether the data still obeys it. A model file says `belongs_to
+:cliente`; it does not say whether the migration that was supposed to add the foreign key
+got skipped in production, or whether `cliente_id` points at rows that no longer exist.
+`pgfathom` starts where the model's authority ends — no source tree, a source tree that
+drifted from the database years ago, or a declared constraint you need to check against the
+data rather than take on faith — and answers from the catalog and the rows, not from what a
+model file claims.
+
 Containment is known in the data-profiling literature as an **inclusion dependency** — the
 automatically testable part of a foreign key. There is a mature body of algorithms for
 discovering them (SPIDER, BINDER, MIND), implemented in
