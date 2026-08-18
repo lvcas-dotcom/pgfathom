@@ -40,6 +40,7 @@
 - [x] 4.2 `make test` (suíte sem Docker) — verde, incluindo os dois testes
       corrigidos em `internal/report`
 - [x] 4.3 `go vet ./...` e `go vet -tags=integration ./...` — limpos
-- [ ] 4.4 `make test-integration` — não executável neste ambiente (sem
-      Docker); fica para o usuário confirmar no dele, como nos dois fixes
-      anteriores desta sessão
+- [x] 4.4 `make test-integration` — rodado em 2026-08-18 numa máquina com
+      Docker. `TestSuggestedKeysArtifactPromotesLiveUnique` passa contra
+      Postgres de verdade, que é o teste que motivou esta change, e a suíte
+      de integração completa fica verde
