@@ -59,6 +59,27 @@ func find(res *infer.Result, child, parent string) (model.Candidate, bool) {
 	return model.Candidate{}, false
 }
 
+// survivor finds a candidate among the ones that reached validation only.
+// find looks in both lists, which is what most tests want and exactly what a
+// test about the threshold must not do.
+func survivor(res *infer.Result, child, parent string) (model.Candidate, bool) {
+	for _, c := range res.Candidates {
+		if c.Child.String() == child && c.Parent.String() == parent {
+			return c, true
+		}
+	}
+	return model.Candidate{}, false
+}
+
+func discarded(res *infer.Result, child, parent string) (model.Candidate, bool) {
+	for _, c := range res.Discarded {
+		if c.Child.String() == child && c.Parent.String() == parent {
+			return c, true
+		}
+	}
+	return model.Candidate{}, false
+}
+
 func TestGeneratesTheObviousCandidate(t *testing.T) {
 	res := generate(t, schema(
 		tbl("cliente"),
@@ -192,9 +213,7 @@ func TestGenericNameWithSmallTargetIsPenalized(t *testing.T) {
 	status := tbl("status")
 	status.Stats.EstimatedRows = 6
 
-	res := generate(t, schema(status, tbl("pedido", col("status_id"))), func(o *infer.Options) {
-		o.MinScore = 0.01
-	})
+	res := generate(t, schema(status, tbl("pedido", col("status_id"))))
 
 	c, ok := find(res, "public.pedido.status_id", "public.status.id")
 	if !ok {
@@ -202,6 +221,118 @@ func TestGenericNameWithSmallTargetIsPenalized(t *testing.T) {
 	}
 	if !c.HasSignal(model.SigGenericDomain) {
 		t.Error("a generic name pointing at a small table should be penalized")
+	}
+}
+
+// TestGenericPenaltyRanksButDoesNotCut pins the boundary the penalty must not
+// cross. It ranks a boring relationship last; it does not decide the
+// relationship is false.
+//
+// The case is the ordinary one, not a contrived one: a plural domain table.
+// An exact name match absorbs the penalty and survives on arithmetic alone
+// (0.30+0.25+0.20+0.05-0.30 = 0.50, exactly the threshold), which is why this
+// went unnoticed — the bug only bites when the table is plural and the name
+// match is therefore normalized rather than exact, at 0.15. That is every
+// Rails and Django schema in existence: categories, statuses, types.
+func TestGenericPenaltyRanksButDoesNotCut(t *testing.T) {
+	tipos := tbl("tipos")
+	tipos.Stats.EstimatedRows = 6
+
+	res := generate(t, schema(tipos, tbl("pedido", col("tipo_id"))))
+
+	c, ok := survivor(res, "public.pedido.tipo_id", "public.tipos.id")
+	if !ok {
+		t.Fatal("a generic name must still reach validation: the penalty says boring, not false")
+	}
+	if !c.HasSignal(model.SigGenericDomain) {
+		t.Fatal("the candidate must carry the penalty; without it this test proves nothing")
+	}
+	// Without this the test would pass vacuously the day the weights move and
+	// the penalized score stops falling below the threshold at all.
+	if c.MetaScore >= infer.DefaultMinScore {
+		t.Errorf("MetaScore = %.2f, which already clears the %.2f threshold: "+
+			"this case no longer exercises the exemption",
+			c.MetaScore, infer.DefaultMinScore)
+	}
+}
+
+// TestGenericPenaltyStillSortsLast is the other half: exempting the penalty
+// from the cut must not exempt it from the ordering, which is the whole reason
+// it exists.
+func TestGenericPenaltyStillSortsLast(t *testing.T) {
+	tipos := tbl("tipos")
+	tipos.Stats.EstimatedRows = 6
+
+	res := generate(t, schema(
+		tipos,
+		tbl("cliente"),
+		tbl("pedido", col("tipo_id"), col("cliente_id")),
+	))
+
+	boring, ok := survivor(res, "public.pedido.tipo_id", "public.tipos.id")
+	if !ok {
+		t.Fatal("the domain candidate should have survived the cut")
+	}
+	interesting, ok := survivor(res, "public.pedido.cliente_id", "public.cliente.id")
+	if !ok {
+		t.Fatal("the ordinary candidate should have survived the cut")
+	}
+	if boring.MetaScore >= interesting.MetaScore {
+		t.Errorf("domain candidate scores %.2f against %.2f: the penalty has to keep ranking",
+			boring.MetaScore, interesting.MetaScore)
+	}
+}
+
+// TestGenericPenaltyDoesNotRescueAWeakCandidate keeps the exemption narrow.
+// A candidate the threshold would have cut on its other signals is cut, penalty
+// or no penalty — otherwise the exemption becomes a way for the weakest
+// hypotheses in the schema to reach the user's database.
+func TestGenericPenaltyDoesNotRescueAWeakCandidate(t *testing.T) {
+	tipos := tbl("tipos")
+	tipos.Stats.EstimatedRows = 6
+
+	// Nullable and merely compatible in type: 0.15 + 0.10 + 0.20 = 0.45,
+	// under the threshold before the penalty is even considered.
+	weak := model.Column{Name: "tipo_id", Type: "integer", BaseType: "int4", Nullable: true}
+
+	res := generate(t, schema(tipos, tbl("pedido", weak)))
+
+	c, ok := discarded(res, "public.pedido.tipo_id", "public.tipos.id")
+	if !ok {
+		t.Fatal("a candidate weak on its own signals must still be discarded")
+	}
+	if c.Reason == "" {
+		t.Error("a discard must carry its reason")
+	}
+}
+
+// TestAmbiguousPenaltyStillCuts keeps the exemption to one signal. The other
+// negative signals say the hypothesis is less likely to be true, which is what
+// a confidence threshold is for; only the generic-name penalty says the
+// relationship is uninteresting.
+func TestAmbiguousPenaltyStillCuts(t *testing.T) {
+	// The same entity name in two schemas: neither target can be the one
+	// meant, and the tool does not get to pick.
+	first := model.Schema{Name: "public", Tables: []model.Table{
+		tbl("cliente"),
+		tbl("pedido", model.Column{Name: "cliente_id", Type: "integer", BaseType: "int4", Nullable: true}),
+	}}
+	second := model.Schema{Name: "arquivo", Tables: []model.Table{tbl("cliente")}}
+	for i := range second.Tables {
+		second.Tables[i].Schema = "arquivo"
+	}
+
+	res := generate(t, []model.Schema{first, second})
+
+	c, ok := find(res, "public.pedido.cliente_id", "public.cliente.id")
+	if !ok {
+		t.Fatal("the candidate should have been generated")
+	}
+	if !c.HasSignal(model.SigAmbiguousTarget) {
+		t.Fatal("two tables answering to the same name must be marked ambiguous")
+	}
+	if _, still := survivor(res, "public.pedido.cliente_id", "public.cliente.id"); still {
+		t.Error("ambiguity is a statement about truth, not about interest: it has to keep cutting")
 	}
 }
 

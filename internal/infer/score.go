@@ -111,7 +111,13 @@ func score(signals []model.Signal) float64 {
 	for _, s := range signals {
 		total += s.Weight
 	}
+	return saturate(total)
+}
 
+// saturate is the single owner of the range rule. score and every derived
+// score go through it, so a number computed one way and a number computed
+// another are comparable against the same threshold.
+func saturate(total float64) float64 {
 	switch {
 	case total < 0:
 		return 0
@@ -120,6 +126,40 @@ func score(signals []model.Signal) float64 {
 	default:
 		return total
 	}
+}
+
+// cutScore is the score the threshold is applied to, which is not always the
+// score the candidate reports.
+//
+// The generic-name penalty is the one signal that says nothing about whether
+// the relationship is real. Every other negative signal lowers the probability
+// of the hypothesis — an ambiguous target means the tool genuinely does not
+// know which table is meant; a merely compatible type means the columns might
+// not be the same thing. SigGenericDomain says the opposite: these
+// relationships "costumam ser reais e pouco interessantes"
+// (openspec/specs/candidate-scoring), and the penalty exists so that dozens of
+// them do not push the valuable findings to the bottom of the report.
+//
+// That is a statement about rank, not about truth. Letting it reach the cut
+// made it a filter: status_id → status, type_id → type, category_id →
+// categories — the most ordinary lookup keys there are — scored 0.65, took the
+// -0.30, landed at 0.35 and were dropped before validation ever ran. The tool
+// then never learned they were 100% contained, and the report named a count
+// with no relation beside it. A key discarded for being boring is the one
+// discard the user cannot argue with, because the argument was never shown.
+//
+// So the penalty ranks and never cuts alone: the threshold sees the score
+// without it, and MetaScore keeps it so the candidate still sorts last. Any
+// candidate that would have been cut anyway is cut anyway.
+func cutScore(c model.Candidate) float64 {
+	total := 0.0
+	for _, s := range c.Signals {
+		if s.Kind == model.SigGenericDomain {
+			continue
+		}
+		total += s.Weight
+	}
+	return saturate(total)
 }
 
 // Rescore recomputes MetaScore from the candidate's signals, saturating exactly

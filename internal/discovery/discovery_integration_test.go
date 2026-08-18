@@ -232,10 +232,23 @@ func TestStagesAccountForTheRun(t *testing.T) {
 		t.Fatal("a finished run must report where its time went")
 	}
 
+	// Negative, not zero. A stage that quietly dropped out contributes no
+	// entry at all (see timeline.mark), so what catches it is the exhaustive
+	// stage list at the end of this test, not a duration.
+	//
+	// Requiring every stage to be strictly positive tested the clock instead
+	// of the code, and failed on Windows for a real reason: Go's monotonic
+	// clock there is coarser than the fastest stage. Naming detection is pure
+	// in-memory work over the catalog already read — it measures under a
+	// millisecond even on Linux, where the published cost table prints it as
+	// `0s` — so on Windows it measures exactly zero, and the suite went red on
+	// a clean clone for whoever contributes from that platform. Zero is a
+	// truthful measurement of work faster than the clock can see. Negative
+	// would mean the timer itself went backwards.
 	var sum time.Duration
 	for _, s := range res.Stages {
-		if s.Duration <= 0 {
-			t.Errorf("stage %q reports %s", s.Stage, s.Duration)
+		if s.Duration < 0 {
+			t.Errorf("stage %q reports %s: durations cannot run backwards", s.Stage, s.Duration)
 		}
 		sum += s.Duration
 	}
