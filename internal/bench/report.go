@@ -26,15 +26,33 @@ const (
 	FileCost   = "cost.md"
 )
 
+// Skipped is a manifest entry this run could not measure, and why.
+//
+// It exists because the alternative is worse than it looks. A schema the
+// harness cannot reach simply produces no section, and the regenerated file
+// reads as complete — the reader has no way to tell a corpus of two from a
+// corpus of three measured on a machine that held two. Whoever runs
+// `make benchmark` without the optional local dump would republish the file
+// with a row silently deleted, and the deletion is invisible in review unless
+// somebody diffs against a copy they happened to remember.
+//
+// The manifest already promised this: "presente na máquina, é medido; ausente,
+// o relatório diz que não foi" (bench/corpus.toml). It was said to the test
+// log, which the published document does not carry.
+type Skipped struct {
+	Name   string
+	Reason string
+}
+
 // WriteReports renders both files under docs/benchmark.
-func WriteReports(results []EntryResult, elapsed time.Duration) error {
+func WriteReports(results []EntryResult, skipped []Skipped, elapsed time.Duration) error {
 	dir := filepath.Join(repoRoot(), "docs", "benchmark")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating report directory: %w", err)
 	}
 
 	for name, content := range map[string]string{
-		FileRecall: renderRecall(results),
+		FileRecall: renderRecall(results, skipped),
 		FileCost:   renderCost(results, elapsed),
 	} {
 		path := filepath.Join(dir, name)
@@ -45,7 +63,7 @@ func WriteReports(results []EntryResult, elapsed time.Duration) error {
 	return nil
 }
 
-func renderRecall(results []EntryResult) string {
+func renderRecall(results []EntryResult, skipped []Skipped) string {
 	var b strings.Builder
 
 	b.WriteString("# Recovery rate on the corpus\n\n")
@@ -76,6 +94,17 @@ func renderRecall(results []EntryResult) string {
 	b.WriteString("hardest case. Both are published, and each row says which it is.\n\n")
 
 	fmt.Fprintf(&b, "Tool `%s`.\n\n", version())
+
+	if len(skipped) > 0 {
+		b.WriteString("**Not measured on this run.** The manifest names schemas this machine\n")
+		b.WriteString("could not reach, so the sections below are the corpus minus these. A file\n")
+		b.WriteString("regenerated without them is not a smaller corpus; it is the same corpus,\n")
+		b.WriteString("partly measured.\n\n")
+		for _, s := range skipped {
+			fmt.Fprintf(&b, "- `%s` — %s\n", s.Name, s.Reason)
+		}
+		b.WriteString("\n")
+	}
 
 	for _, r := range results {
 		fmt.Fprintf(&b, "## %s\n\n", r.Entry.Name)

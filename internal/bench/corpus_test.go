@@ -60,13 +60,19 @@ func TestCorpus(t *testing.T) {
 
 	started := time.Now()
 	var results []bench.EntryResult
+	var skipped []bench.Skipped
 
 	for _, e := range manifest.Schemas {
 		if os.Getenv("PGFATHOM_BENCH_DSN_"+strings.ToUpper(strings.ReplaceAll(e.Name, "-", "_"))) == "" && !bench.Ready(e) {
 			if e.Kind == bench.FromLocal {
 				// Optional by design: a real dump cannot live in a public
-				// manifest. Its absence is stated rather than omitted.
-				t.Logf("SKIP %s: optional local schema absent from this machine", e.Name)
+				// manifest. Its absence is stated rather than omitted — in the
+				// published report, not only here, or regenerating the file on
+				// a machine without the dump would delete the row and read as
+				// if it had never been measured at all.
+				const reason = "optional local dump, absent from the machine that ran this"
+				t.Logf("SKIP %s: %s", e.Name, reason)
+				skipped = append(skipped, bench.Skipped{Name: e.Name, Reason: reason})
 				continue
 			}
 			t.Fatalf("%s is not in the cache; run: make corpus", e.Name)
@@ -79,7 +85,7 @@ func TestCorpus(t *testing.T) {
 	if len(results) == 0 {
 		t.Fatal("no schema was measured")
 	}
-	if err := bench.WriteReports(results, time.Since(started)); err != nil {
+	if err := bench.WriteReports(results, skipped, time.Since(started)); err != nil {
 		t.Fatalf("writing reports: %v", err)
 	}
 }
