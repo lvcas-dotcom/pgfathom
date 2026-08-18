@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/status-pre--release-E04A3F" alt="status: pre-release">
+  <img src="https://img.shields.io/github/v/release/lvcas-dotcom/pgfathom?color=E04A3F&label=release" alt="latest release">
   <img src="https://img.shields.io/badge/go-1.25%2B-00ADD8?logo=go&logoColor=white" alt="Go 1.25+">
   <img src="https://img.shields.io/badge/postgres-13%2B-336791?logo=postgresql&logoColor=white" alt="PostgreSQL 13+">
   <img src="https://img.shields.io/badge/mode-read--only-2E7D32" alt="read-only">
@@ -134,8 +134,9 @@ to be resolved before any constraint can be added.
 plus the `CREATE INDEX CONCURRENTLY` on the child column when it's missing, because an
 unindexed FK child is a classic delete trap.
 
-**Weak** and **rejected** are reported too, so you never wonder why an obvious-looking
-column was ignored.
+**Weak** is reported beside them. **Rejected** candidates are counted on every run and named
+by `--include-rejected`, each with the score and the reason it fell — so you never wonder why
+an obvious-looking column was ignored.
 
 Note the first row: `os_servico.resp_tecnico → funcionario.id`. No name-matching heuristic
 in the world finds that one — `resp_tecnico` looks nothing like `funcionario`. `pgfathom`
@@ -303,9 +304,12 @@ privileges, candidates that timed out, schemas not covered — all of it appears
 coverage block on every run. A clean report means "I looked and it's clean", never "I
 couldn't look".
 
-**Small dependency tree, on purpose.** Four dependencies in the binary. No cgo. The person
-who has to approve running this against production will open `go.mod` first, and we intend
-that to be a short read.
+**Small dependency tree, on purpose.** Six direct dependencies, twenty-five modules in the
+linked binary, 11 MB, no cgo. Four of the six do the work — the driver, the CLI framework,
+the TOML reader and `x/sync`. The other two draw the interactive `setup` guide and are
+reachable from nothing else; that cost was argued before it was paid, in
+[`openspec/project.md`](openspec/project.md). The person who has to approve running this
+against production will open `go.mod` first, and we intend that to be a short read.
 
 ## How it works
 
@@ -341,6 +345,21 @@ catalog  →  usage evidence  →  candidates  →  scoring  →  stats prefilte
 ## Naming profiles
 
 Most schema tools assume English. The databases that need this tool most often aren't.
+
+**The shipped default is `pt-br`, and every run prints which profile it used in its first
+line.** That default is not a claim about your database — it is where this tool was built and
+what it was built to read. If your schema is English, say so:
+
+```console
+$ pgfathom discover --profile en
+```
+
+What it costs you if you don't is the plural rules. `categories → category` and `boxes → box`
+are in `en` and in no other profile, so under `pt-br` those columns fall through to the
+lexical fallback — still found, at roughly half the name weight (0.08 against 0.15 for
+`category_id` here), which means they now need the other signals to carry them over the
+threshold rather than clearing it on their own. Naming detection, on by default, reads the
+affix convention off your schema either way; what it reads is affixes, not grammar.
 
 Affix and plural rules live in TOML, not in Go, so teaching `pgfathom` a new convention is
 a config file rather than a patch:

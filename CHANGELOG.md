@@ -37,11 +37,69 @@ change between minor versions; both are versioned and documented when they do.
   print it. A schema whose only detected convention was that one got a section
   announcing conventions and naming none.
 
+### Fixed
+
+- **The most ordinary foreign keys in an English schema are no longer discarded
+  unseen.** A domain table — `categories`, `statuses`, `types` — carries a
+  penalty so that dozens of uninteresting-but-real relationships do not bury the
+  findings that justify the tool. That penalty was reaching the score threshold,
+  which is a different thing entirely: `category_id → categories` scored 0.65,
+  took the -0.30, landed at 0.35 under a threshold of 0.50, and was dropped
+  before validation ever ran. The relationship the data would have confirmed at
+  100% containment was never looked at, and the report named a count with no
+  relation beside it.
+
+  The penalty now ranks and never cuts on its own: the threshold sees the score
+  without it, and the reported score still carries it, so the ordering it exists
+  for is unchanged. Every other negative signal still cuts — an ambiguous target
+  means the tool does not know which table is meant, which is exactly what a
+  confidence threshold is for. A candidate already below the threshold on its
+  other signals is still discarded, with its reason.
+
+  It bit hardest where the table name is plural and the name match is therefore
+  normalized rather than exact, which is every Rails and Django schema. Measured
+  against a real server, an English schema goes from 4 confirmed to 5. The cost
+  is one validation query per real domain key. The public corpus cannot measure
+  this either way: it is DDL without a single row, so the penalty, which needs a
+  row estimate, is never emitted there at all.
+
+- **The benchmark report says which corpus schemas it could not measure.** The
+  manifest promises that an absent local dump is stated rather than omitted; the
+  statement went to the test log, which the published document does not carry.
+  Regenerating `docs/benchmark/recall.md` on a machine without the optional dump
+  silently deleted that schema's section, and the result read as a complete
+  corpus rather than a partly measured one.
+
+- **The integration suite no longer fails on Windows.** One assertion required
+  every pipeline stage to report a strictly positive duration. Naming detection
+  is in-memory work over a catalog already read — the published cost table
+  prints it as `0s` even on Linux — and Go's monotonic clock on Windows is
+  coarser than that, so it measured exactly zero and the suite went red on a
+  clean clone. Durations are now allowed to be zero and rejected only if
+  negative; a stage that drops out is caught by the exhaustive stage list, which
+  is what was actually guarding against it.
+
 ### Changed
 
 - The lexical fallback no longer extracts a table's trigrams once per column in
   the database. On a 1,000-table schema the generation stage drops from 17.4s to
   2.5s and from 16 GB of allocation to 11 MB.
+
+### Documentation
+
+- The README said the binary carried four dependencies. It carries six direct
+  ones and links twenty-five modules at 11 MB — the interactive `setup` guide
+  arrived in between, and the sentence did not. The cost is now stated with the
+  reason it was accepted, which is the argument the reader opening `go.mod` is
+  actually looking for.
+- The README now says that the shipped profile default is `pt-br`, and what
+  passing `--profile en` buys an English schema. Every run already printed the
+  profile it used; nothing said which one you would get.
+- The status badge tracked a hand-written "pre-release" through three releases.
+  It now reads the latest release from GitHub, so it cannot go stale again.
+- "Weak and rejected are reported too" was true of weak and half-true of
+  rejected: discards are counted on every run, and named by `--include-rejected`.
+  The sentence now says so.
 
 ## [0.1.2] — 2026-08-13
 
