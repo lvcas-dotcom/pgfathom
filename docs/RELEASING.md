@@ -55,8 +55,20 @@ pedir autenticação a quem só quer experimentar.
    dali, e um release que os contradiga é pior do que um release sem eles.
 5. Rode `make release-check`. Ele valida a configuração e prova que o binário
    do caminho de release sabe a própria versão.
-6. Rode `goreleaser release --snapshot --clean` e abra `dist/`. É a última
-   chance de olhar o que vai ser publicado antes de existir uma tag.
+6. Rode o ensaio e abra `dist/`. É a última chance de olhar o que vai ser
+   publicado antes de existir uma tag.
+
+   ```console
+   $ HOMEBREW_TAP_KEY_PATH= goreleaser release --snapshot --clean
+   ```
+
+   A variável precisa estar **definida e vazia**, não ausente. O `skip_upload`
+   do cask é um template sobre `.Env.HOMEBREW_TAP_KEY_PATH`, e o Go trata
+   chave ausente como erro em vez de string vazia — sem ela o ensaio morre no
+   estágio do Homebrew, depois de já ter construído tudo, com uma mensagem
+   sobre `map has no entry` que não se parece nada com a causa. O workflow
+   define a variável sempre, vazia inclusive, justamente por isso; aqui é você
+   quem define.
 7. Crie e empurre a tag:
 
    ```console
