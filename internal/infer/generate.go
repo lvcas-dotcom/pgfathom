@@ -530,7 +530,9 @@ func finalize(res *Result, minScore float64) {
 	survivors := res.Candidates[:0:0]
 
 	for _, c := range res.Candidates {
-		if c.MetaScore >= minScore {
+		// cutScore, not MetaScore: the generic-name penalty ranks and never
+		// cuts on its own. See its doc comment for why the two differ.
+		if cutScore(c) >= minScore {
 			survivors = append(survivors, c)
 			continue
 		}
