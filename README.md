@@ -22,12 +22,24 @@
   <a href="#safety">Safety</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#how-correctness-is-measured">Measurements</a> ·
-  <a href="#roadmap">Roadmap</a>
+  <a href="#prior-art">Prior art</a> ·
+  <a href="#roadmap">Roadmap</a> ·
+  <a href="docs/guide/README.md">Guide</a>
 </p>
 
 ---
 
 `pgfathom` finds the relationships your database has but never declared — and proves them against the data instead of guessing from column names.
+
+Take a 1,857-key GitLab schema, drop half its foreign keys, and it brings **62.6%** of
+them back; drop all of them and it still brings back **61.5%**. On a Brazilian municipal
+schema whose reference affix no shipped profile knows — `idkey_lote` in one table,
+`lote_idkey` in the next — it brings back **84.9%**, because it reads that convention off
+the keys the schema still declares. Take those away too and the same schema falls to
+**16.6%**, which is the number that says what the technique actually rests on. Both
+regimes are published for every schema in [a corpus anyone can re-run](#the-measured-corpus),
+and [what none of them measures](#how-correctness-is-measured) is stated as plainly as
+what they do.
 
 <p align="center">
   <img src="assets/demo.svg" alt="pgfathom discover finding one broken and two confirmed relationships" width="900">
@@ -44,13 +56,11 @@ own integrity, and prints exactly what you see above.
 
 > [!IMPORTANT]
 > **Early, and measured.**
-> `pgfathom audit` and `pgfathom discover` run end to end, verdicts and reviewable
-> `.sql` artifacts included, against real production schemas and against a
-> [public corpus](#the-measured-corpus) anyone can re-run with `make benchmark`.
-> Recovery is around 61% on a 1,857-key schema, and the report says what that
-> number does not measure as plainly as what it does. What the tool never does is
-> write to your database. The terminal output below is a real run against the
-> demo schema in [`docs/DEMO.md`](docs/DEMO.md), which you can reproduce in a
+> `pgfathom audit` and `pgfathom discover` run end to end — verdicts and reviewable
+> `.sql` artifacts included — against real production schemas and against the public
+> corpus. What the tool never does is write to your database. The image above is a real
+> run against the demo schema in [`docs/DEMO.md`](docs/DEMO.md), re-recorded from the
+> tool's own bytes by `make demo-svg` rather than screenshotted, and reproducible in a
 > container in about a minute.
 
 ---
@@ -86,12 +96,12 @@ your diagram. It never checked a single pre-existing row.
 ## What it does
 
 ```console
-$ pgfathom discover --schema public
+$ pgfathom discover --schema public --full
 ```
 
 ```
 
-  pgfathom v0.1.2 · PostgreSQL 16.14 · profile pt-br · threshold 0.50
+  pgfathom v0.2.0 · PostgreSQL 16.14 · profile pt-br · threshold 0.50
   full validation — every row was examined; verdicts are conclusive
 
   BROKEN — the relationship is real; its integrity is not  (1)
@@ -117,7 +127,7 @@ $ pgfathom discover --schema public
   ────────────────────────────────────────────────────────────────────────────────────────────────
   key name  id  5 occurrences (100%) — e.g. cliente, funcionario, nota_fiscal
 
-  1 broken · 2 confirmed · 0 weak · 0 unvalidated · 0 discarded · 133ms
+  1 broken · 2 confirmed · 0 weak · 0 unvalidated · 0 discarded · 148ms
   6 tables · 6 analyzed (100%)
   stats prefilter: 3 checked · 0 rejected · 0 without statistics
   ! statistics reset time unknown — usage counters carry no meaning
@@ -196,7 +206,7 @@ check it against the `checksums.txt` published beside it. The artifacts are not
 signed; the checksum file is what exists today, and
 [`docs/RELEASING.md`](docs/RELEASING.md) says so where it can be found.
 
-On macOS, Homebrew works once the tap exists:
+On macOS, from the project's tap:
 
 ```console
 $ brew install lvcas-dotcom/tap/pgfathom
@@ -305,11 +315,12 @@ coverage block on every run. A clean report means "I looked and it's clean", nev
 couldn't look".
 
 **Small dependency tree, on purpose.** Six direct dependencies, twenty-five modules in the
-linked binary, 11 MB, no cgo. Four of the six do the work — the driver, the CLI framework,
-the TOML reader and `x/sync`. The other two draw the interactive `setup` guide and are
-reachable from nothing else; that cost was argued before it was paid, in
-[`openspec/project.md`](openspec/project.md). The person who has to approve running this
-against production will open `go.mod` first, and we intend that to be a short read.
+linked binary, 11 MB on `linux/amd64`, no cgo. Four of the six do the work — the driver,
+the CLI framework, the TOML reader and `x/sync`. The other two draw the interactive
+`setup` guide and are reachable from nothing else; that cost was argued before it was
+paid, in [`openspec/project.md`](openspec/project.md). The person who has to approve
+running this against production will open `go.mod` first, and we intend that to be a short
+read.
 
 ## How it works
 
@@ -477,7 +488,7 @@ That is a fact about this corpus, not about the technique: the demo schema in
 view. What the corpus establishes is that a schema dump is a poor place to look for joins,
 and that anyone quoting these numbers should say so.
 
-Three things these tables are not saying.
+Four things these tables are not saying.
 
 **No verdict is measured.** A published `structure.sql` has no rows, so nothing can be
 confirmed or broken; what is measured is whether the right candidate was *raised*. The rule
@@ -487,6 +498,16 @@ the answer was built alongside the scenario.
 **Candidates outside the truth set are not errors.** In a real schema a true relationship
 that was never declared is this tool's product, so the count is published as what it is and
 enters no error rate.
+
+**There is no precision figure, and that is the open gap.** Recall is measured; precision
+is not. Measuring it needs two things this corpus cannot give — rows, so that a verdict
+exists to be right or wrong about, and a labelled answer for the candidates outside the
+truth set, which today are counted rather than classified. Until both exist, the strongest
+honest claim is the narrow one: no false positive has ever been confirmed against the
+integration fixtures. That is deliberately narrower than "precision is high", and the
+difference is not rhetorical. Closing it is
+[issue #36](https://github.com/lvcas-dotcom/pgfathom/issues/36) — synthetic rows in the
+corpus, so verdicts enter the measurement instead of sitting beside it.
 
 **Composite keys: 1 of 53 recovered on GitLab**, and the 52 are explained. Every one has the
 shape `(partition_id, build_id) → (id, partition_id)`: one position matching the key column
@@ -571,11 +592,17 @@ like from a schema that finally knows its own relationships.
 | 7 | Terminal, JSON and SQL output | Done |
 | 8 | Composite keys, benchmark corpus and release | Done |
 
-Full detail in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+Those eight phases are the v0.1 roadmap, closed; full detail in
+[`docs/ROADMAP.md`](docs/ROADMAP.md). The current release is **v0.2.0**, and what changed
+in it is in [`CHANGELOG.md`](CHANGELOG.md).
 
-**After v0.1:** `pgfathom check --baseline` for CI — fail the build when a new undeclared
-relationship appears or an orphan count grows. Then structural findings, cross-cutting
-patterns (tenant columns, polymorphic pairs), and DBML/Mermaid/PlantUML export.
+**Next, and tracked as issues rather than promised here:**
+[measuring verdicts instead of only candidate generation](https://github.com/lvcas-dotcom/pgfathom/issues/36),
+which is the open gap in the numbers above, and
+[`pgfathom check --baseline`](https://github.com/lvcas-dotcom/pgfathom/issues/38) for CI —
+fail the build when a new undeclared relationship appears or an orphan count grows. Then
+structural findings, cross-cutting patterns (tenant columns, polymorphic pairs), and
+DBML/Mermaid/PlantUML export.
 
 Code generation is explicitly *not* on the roadmap.
 
