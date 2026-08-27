@@ -91,7 +91,7 @@ $ pgfathom discover --schema public --full
 
 ```
 
-  pgfathom v0.1.2 · PostgreSQL 16.14 · profile pt-br · threshold 0.50
+  pgfathom v0.2.0 · PostgreSQL 16.14 · profile pt-br · threshold 0.50
   full validation — every row was examined; verdicts are conclusive
 
   BROKEN — the relationship is real; its integrity is not  (1)
@@ -117,7 +117,7 @@ $ pgfathom discover --schema public --full
   ────────────────────────────────────────────────────────────────────────────────────────────────
   key name  id  5 occurrences (100%) — e.g. cliente, funcionario, nota_fiscal
 
-  1 broken · 2 confirmed · 0 weak · 0 unvalidated · 0 discarded · 133ms
+  1 broken · 2 confirmed · 0 weak · 0 unvalidated · 0 discarded · 148ms
   6 tables · 6 analyzed (100%)
   stats prefilter: 3 checked · 0 rejected · 0 without statistics
   ! statistics reset time unknown — usage counters carry no meaning
