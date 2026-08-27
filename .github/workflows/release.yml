@@ -33,9 +33,11 @@ jobs:
           go-version: stable
           check-latest: true
 
+      # Keep this in step with the pin in ci.yml — see the note there on why the
+      # version is a Go-version floor and not just a preference.
       - name: install golangci-lint
         run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       # The integration suite stays out: it needs Docker inside the runner and
