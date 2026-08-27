@@ -1,5 +1,11 @@
 # Roadmap de implementação — v0.1
 
+> **Status.** As oito fases abaixo estão fechadas e saíram na v0.1.0; a release
+> corrente é a **v0.2.0**. O que mudou depois está no
+> [CHANGELOG.md](../CHANGELOG.md), e o trabalho seguinte é acompanhado como
+> issue, não aqui. Este documento continua sendo o registro de como o MVP foi
+> ordenado e por quê — que é a parte que não envelhece.
+
 Oito fases até o MVP. Cada fase é uma change do OpenSpec e termina em algo verificável — não em "camada pronta", mas em comportamento observável que passa em teste.
 
 O princípio de ordenação é **empurrar o risco para a frente**. As duas primeiras fases não tocam em dado de usuário e não dependem de rede, então falham barato. A validação contra dados, que é onde mora o risco operacional, chega com o resto já testado embaixo dela.

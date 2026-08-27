@@ -591,11 +591,17 @@ like from a schema that finally knows its own relationships.
 | 7 | Terminal, JSON and SQL output | Done |
 | 8 | Composite keys, benchmark corpus and release | Done |
 
-Full detail in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+Those eight phases are the v0.1 roadmap, closed; full detail in
+[`docs/ROADMAP.md`](docs/ROADMAP.md). The current release is **v0.2.0**, and what changed
+in it is in [`CHANGELOG.md`](CHANGELOG.md).
 
-**After v0.1:** `pgfathom check --baseline` for CI — fail the build when a new undeclared
-relationship appears or an orphan count grows. Then structural findings, cross-cutting
-patterns (tenant columns, polymorphic pairs), and DBML/Mermaid/PlantUML export.
+**Next, and tracked as issues rather than promised here:**
+[measuring verdicts instead of only candidate generation](https://github.com/lvcas-dotcom/pgfathom/issues/36),
+which is the open gap in the numbers above, and
+[`pgfathom check --baseline`](https://github.com/lvcas-dotcom/pgfathom/issues/38) for CI —
+fail the build when a new undeclared relationship appears or an orphan count grows. Then
+structural findings, cross-cutting patterns (tenant columns, polymorphic pairs), and
+DBML/Mermaid/PlantUML export.
 
 Code generation is explicitly *not* on the roadmap.
 
