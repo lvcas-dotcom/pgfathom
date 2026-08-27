@@ -18,13 +18,18 @@ On the pt-BR municipal schema in the corpus, partial recall is **84.9%**; greenf
 the exact same schema, is **16.6%**. That gap is the entire argument for naming-convention
 detection — see [Naming profiles](../03-features-and-safety/naming-profiles.md).
 
-## Three things the recall table does not say
+## Four things the recall table does not say
 
 1. **No verdict is measured** — the public dumps have no rows, so nothing gets confirmed
    or broken. What's measured is whether the right candidate was *raised*.
 2. **Candidates outside the ground truth aren't errors** — in a real schema, a true
    relationship nobody declared is the product, not a false positive.
-3. **Composite keys: 1 of 53 recovered on GitLab**, and the other 52 are explained (they
+3. **There is no precision figure** — recall is measured, precision is not, because that
+   needs rows (so a verdict exists to be right about) and a labelled answer for the
+   candidates outside the truth set. The honest claim stays the narrow one: no false
+   positive has ever been confirmed against the integration fixtures. Tracked as
+   [issue #36](https://github.com/lvcas-dotcom/pgfathom/issues/36).
+4. **Composite keys: 1 of 53 recovered on GitLab**, and the other 52 are explained (they
    only match half the key's shape) — not silently absorbed into a lower headline number.
 
 ## Coverage is part of the metric

@@ -487,7 +487,7 @@ That is a fact about this corpus, not about the technique: the demo schema in
 view. What the corpus establishes is that a schema dump is a poor place to look for joins,
 and that anyone quoting these numbers should say so.
 
-Three things these tables are not saying.
+Four things these tables are not saying.
 
 **No verdict is measured.** A published `structure.sql` has no rows, so nothing can be
 confirmed or broken; what is measured is whether the right candidate was *raised*. The rule
@@ -497,6 +497,16 @@ the answer was built alongside the scenario.
 **Candidates outside the truth set are not errors.** In a real schema a true relationship
 that was never declared is this tool's product, so the count is published as what it is and
 enters no error rate.
+
+**There is no precision figure, and that is the open gap.** Recall is measured; precision
+is not. Measuring it needs two things this corpus cannot give — rows, so that a verdict
+exists to be right or wrong about, and a labelled answer for the candidates outside the
+truth set, which today are counted rather than classified. Until both exist, the strongest
+honest claim is the narrow one: no false positive has ever been confirmed against the
+integration fixtures. That is deliberately narrower than "precision is high", and the
+difference is not rhetorical. Closing it is
+[issue #36](https://github.com/lvcas-dotcom/pgfathom/issues/36) — synthetic rows in the
+corpus, so verdicts enter the measurement instead of sitting beside it.
 
 **Composite keys: 1 of 53 recovered on GitLab**, and the 52 are explained. Every one has the
 shape `(partition_id, build_id) → (id, partition_id)`: one position matching the key column
