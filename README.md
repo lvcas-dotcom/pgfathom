@@ -86,7 +86,7 @@ your diagram. It never checked a single pre-existing row.
 ## What it does
 
 ```console
-$ pgfathom discover --schema public
+$ pgfathom discover --schema public --full
 ```
 
 ```
