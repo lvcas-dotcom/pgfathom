@@ -22,12 +22,24 @@
   <a href="#safety">Safety</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#how-correctness-is-measured">Measurements</a> ·
-  <a href="#roadmap">Roadmap</a>
+  <a href="#prior-art">Prior art</a> ·
+  <a href="#roadmap">Roadmap</a> ·
+  <a href="docs/guide/README.md">Guide</a>
 </p>
 
 ---
 
 `pgfathom` finds the relationships your database has but never declared — and proves them against the data instead of guessing from column names.
+
+Take a 1,857-key GitLab schema, drop half its foreign keys, and it brings **62.6%** of
+them back; drop all of them and it still brings back **61.5%**. On a Brazilian municipal
+schema whose reference affix no shipped profile knows — `idkey_lote` in one table,
+`lote_idkey` in the next — it brings back **84.9%**, because it reads that convention off
+the keys the schema still declares. Take those away too and the same schema falls to
+**16.6%**, which is the number that says what the technique actually rests on. Both
+regimes are published for every schema in [a corpus anyone can re-run](#the-measured-corpus),
+and [what none of them measures](#how-correctness-is-measured) is stated as plainly as
+what they do.
 
 <p align="center">
   <img src="assets/demo.svg" alt="pgfathom discover finding one broken and two confirmed relationships" width="900">
@@ -44,13 +56,11 @@ own integrity, and prints exactly what you see above.
 
 > [!IMPORTANT]
 > **Early, and measured.**
-> `pgfathom audit` and `pgfathom discover` run end to end, verdicts and reviewable
-> `.sql` artifacts included, against real production schemas and against a
-> [public corpus](#the-measured-corpus) anyone can re-run with `make benchmark`.
-> Recovery is around 61% on a 1,857-key schema, and the report says what that
-> number does not measure as plainly as what it does. What the tool never does is
-> write to your database. The terminal output below is a real run against the
-> demo schema in [`docs/DEMO.md`](docs/DEMO.md), which you can reproduce in a
+> `pgfathom audit` and `pgfathom discover` run end to end — verdicts and reviewable
+> `.sql` artifacts included — against real production schemas and against the public
+> corpus. What the tool never does is write to your database. The image above is a real
+> run against the demo schema in [`docs/DEMO.md`](docs/DEMO.md), re-recorded from the
+> tool's own bytes by `make demo-svg` rather than screenshotted, and reproducible in a
 > container in about a minute.
 
 ---
