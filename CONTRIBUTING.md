@@ -3,6 +3,11 @@
 Thanks for looking. This document is the short version of how the project
 works; the reasoning behind the rules lives in `openspec/project.md`.
 
+Never seen the codebase? [`docs/guide/`](docs/guide/README.md) is the map — the
+architecture, the seven-stage pipeline, the safety rules and what the recall
+numbers mean, one page at a time. It is written for someone who has read none of
+the rest.
+
 ## What you need
 
 - **Go 1.25** or later
@@ -89,13 +94,19 @@ both.
 
 ### Language
 
-**Everything in the repository tree is English** — code, comments, `--help`,
-build files, CI workflows, and the documents you are reading. If a contributor
-can open it, it is in English.
+**Everything a contributor needs is in English** — code, comments, `--help`,
+build files, CI workflows, the tests, and the documents you are reading.
 
-Two exceptions, both deliberate: **commit messages** and the design record under
-`openspec/` are written in Portuguese, the maintainer's language. They are the
-project's history and its reasoning, not its interface.
+Three things are in Portuguese, the maintainer's language, and deliberately so:
+**commit messages**, the design record under `openspec/`, and the two documents
+it grew out of — [`docs/PGFATHOM.md`](docs/PGFATHOM.md) and
+[`docs/ROADMAP.md`](docs/ROADMAP.md). They are the project's history and its
+reasoning, not its interface.
+
+You do not need to read any of them to send a patch. [`docs/guide/`](docs/guide/README.md)
+covers the same ground in English and links back to each Portuguese source for
+the full detail. Where the two disagree, the Portuguese source is the
+authoritative one — worth knowing before you argue with a comment.
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/), and
 the body should say why, not restate the diff.
