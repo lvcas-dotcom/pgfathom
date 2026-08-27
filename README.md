@@ -315,11 +315,12 @@ coverage block on every run. A clean report means "I looked and it's clean", nev
 couldn't look".
 
 **Small dependency tree, on purpose.** Six direct dependencies, twenty-five modules in the
-linked binary, 11 MB, no cgo. Four of the six do the work — the driver, the CLI framework,
-the TOML reader and `x/sync`. The other two draw the interactive `setup` guide and are
-reachable from nothing else; that cost was argued before it was paid, in
-[`openspec/project.md`](openspec/project.md). The person who has to approve running this
-against production will open `go.mod` first, and we intend that to be a short read.
+linked binary, 11 MB on `linux/amd64`, no cgo. Four of the six do the work — the driver,
+the CLI framework, the TOML reader and `x/sync`. The other two draw the interactive
+`setup` guide and are reachable from nothing else; that cost was argued before it was
+paid, in [`openspec/project.md`](openspec/project.md). The person who has to approve
+running this against production will open `go.mod` first, and we intend that to be a short
+read.
 
 ## How it works
 
