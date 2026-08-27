@@ -206,7 +206,7 @@ check it against the `checksums.txt` published beside it. The artifacts are not
 signed; the checksum file is what exists today, and
 [`docs/RELEASING.md`](docs/RELEASING.md) says so where it can be found.
 
-On macOS, Homebrew works once the tap exists:
+On macOS, from the project's tap:
 
 ```console
 $ brew install lvcas-dotcom/tap/pgfathom
