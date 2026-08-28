@@ -64,9 +64,18 @@ jobs:
       # the v2 schema, and the v1-line action does not understand it. Installing
       # it here pins the same version that runs locally, so "passes on mine" and
       # "passes in CI" mean the same thing.
+      #
+      # The pin is also a Go-version floor, which is why it moves on its own
+      # schedule. Every job here asks for `stable`, so the day Go 1.27 shipped,
+      # this job started analysing a standard library that uses struct
+      # initializers referencing embedded fields directly. Staticcheck only
+      # learned that syntax in 2026.2 (honnef.co/go/tools v0.8.0); v2.12.2
+      # carried v0.7.0, whose IR builder panicked on `internal/poll` — not on
+      # anything in this repository. golangci-lint v2.13.1 is the first release
+      # carrying v0.8.0.
       - name: install golangci-lint
         run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - run: make lint
 
